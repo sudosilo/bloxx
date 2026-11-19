@@ -57,6 +57,21 @@ input[type=range]{width:100%;accent-color:var(--blue)}
 .colorbtn{display:flex;align-items:center;justify-content:center;gap:6px}
 .colorbtn input{width:26px;height:26px;border:none;padding:0;background:none}
 #ghost{position:fixed;z-index:70;pointer-events:none;display:none;background:var(--blue);color:#fff;border-radius:9px;padding:8px 10px;font-weight:800;font-size:12px;box-shadow:0 6px 18px #0003;transform:translate(-50%,-130%)}
+#cat{position:fixed;inset:0;background:#fff;z-index:60;display:none;flex-direction:column}
+body.cat #cat{display:flex}
+.cathead{height:54px;flex:0 0 54px;display:flex;align-items:center;gap:8px;padding:0 8px;border-bottom:3px solid var(--blue)}
+.ctitle{font-weight:900;letter-spacing:.1em;color:var(--blue);font-size:17px}
+#catView{flex:0 0 34vh;position:relative;background:#eaf1f8;touch-action:none}
+#catInfo{flex:0 0 24vh;overflow-y:auto;padding:10px 12px;border-bottom:1px solid var(--line)}
+.cname{font-weight:900;font-size:17px;color:var(--blue)}
+.cmeta{font-size:12px;color:var(--mute);margin:4px 0 6px;line-height:1.5}
+.cdesc{font-size:13px;line-height:1.5}
+#catList{flex:1;overflow-y:auto;padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:6px;align-content:start}
+.citem{height:40px;border:1px solid var(--line);border-radius:9px;background:#fff;display:flex;align-items:center;gap:6px;padding:0 8px;font-size:12px;font-weight:700;overflow:hidden;white-space:nowrap}
+.citem.on{background:var(--blue);border-color:var(--blue);color:#fff}
+.cgrp{grid-column:span 2;font-size:11px;font-weight:800;letter-spacing:.1em;color:var(--mute);text-transform:uppercase;margin-top:6px}
+.railrow{display:grid;grid-template-columns:96px 1fr;gap:6px;align-items:center;height:40px;margin-bottom:8px}
+.railrow span{font-size:12px;font-weight:800;color:var(--mute)}
 #scrim{position:fixed;inset:var(--top) 0 0 0;background:#1d273322;z-index:40;display:none}
 #menu{position:fixed;left:0;top:var(--top);bottom:0;width:min(84vw,340px);background:#fff;border-right:3px solid var(--blue);z-index:41;transform:translateX(-105%);transition:transform .2s;overflow-y:auto;padding:10px 12px 40px;box-shadow:4px 0 18px #0002}
 body.menu #menu{transform:none}
@@ -84,6 +99,12 @@ details>div{padding:0 12px 12px}
 <div id="view"></div>
 <div id="sheet"></div>
 <div id="ghost"></div>
+<div id="cat">
+  <div class="cathead"><button class="ib" id="catClose" aria-label="Close">&#10005;</button><div class="ctitle">PARTS CATALOG</div></div>
+  <div id="catView"></div>
+  <div id="catInfo"><div class="cname" id="catName"></div><div class="cmeta" id="catMeta"></div><div class="cdesc" id="catDesc"></div></div>
+  <div id="catList"></div>
+</div>
 <div id="scrim"></div>
 <div id="menu">
   <details open><summary>Layout</summary><div>
@@ -92,6 +113,7 @@ details>div{padding:0 12px 12px}
       <button class="btn" data-m="frame">Frame view</button>
       <button class="btn" data-m="copy">Copy selected</button>
       <button class="btn warn" data-m="clear">Clear all</button>
+      <button class="btn primary" data-m="catalog" style="grid-column:span 2">Parts catalog</button>
     </div>
   </div></details>
   <details open><summary>Presets</summary><div>
@@ -170,7 +192,9 @@ const DOORS={
   smoke:{name:'Smoke machine',short:'Smoke',color:0xb9c3cf,lb:22,w:700},
   sensor:{name:'Sensor',short:'Sensor',color:0x2fb36b,lb:4,w:10},
   art:{name:'Art wall',short:'Art',color:0xf6efe2,lb:7,w:0},
-  rgb:{name:'Backlit RGB',short:'RGB',color:0xff4fd8,lb:9,w:60}
+  rgb:{name:'Backlit RGB',short:'RGB',color:0xff4fd8,lb:9,w:60},
+  cable:{name:'Cable pass door',short:'Cable',color:0x8a5a2b,lb:5,w:0},
+  none:{name:'No door, open slot',short:'Open slot',color:0xffffff,lb:0,w:0}
 };
 const PAINTS=[['wood','Wood','#c9a26b'],['#1d2128','Black'],['#f4f6f8','White'],['#8a939d','Gray'],['#d8323c','Red'],['#1e6fd9','Blue'],['#2fb36b','Green'],['#f2c230','Yellow'],['#f07a2a','Orange'],['#7d4bd8','Purple']];
 const SHOW_DEF={pattern:'ripple',motion:'still',bpm:120,color:'#1e6fd9',overhead:false};
@@ -193,7 +217,7 @@ function nextName(list){const used=new Set(list.map(b=>b.name));let i=0;while(us
 function bayCount(){return Math.max(1,Math.floor((STD.h-3)/(STD.bayU*U)))}
 function blankBay(){const d={};FACES.forEach(f=>d[f]={t:'plain',open:false});return{inside:'none',doors:d}}
 function normBlock(b){
-  Object.assign(b,STD);if(b.y==null)b.y=0;if(!b.mode)b.mode='tower';if(b.rot==null)b.rot=0;
+  Object.assign(b,STD);if(b.y==null)b.y=0;if(!b.rails)b.rails='none';if(!b.mode)b.mode='tower';if(b.rot==null)b.rot=0;
   b.bays=(b.bays||[]).map(o=>{
     if(o&&o.doors)return o;
     const nb=blankBay();if(!o)return nb;
@@ -224,7 +248,8 @@ function presetBlocks(k){
   }else if(k==='bridge'){
     mk(L,{x:-31.5},[{f:'smoke'},{in:'amp',f:'sub'},{f:'mid'},{f:'tweet'},{f:'led',r:'lz45'}]);
     mk(L,{x:31.5},[{f:'smoke'},{in:'amp',f:'sub'},{f:'mid'},{f:'tweet'},{f:'led',l:'lz45'}]);
-    mk(L,{mode:'deck'},[{f:'lzG9'},{f:'strobe'},{f:'proj'},{f:'strobe'},{f:'lzG9'}]);
+    const dk=mk(L,{mode:'deck',rails:'both'},[{f:'lzG9'},{f:'strobe'},{f:'proj'},{f:'strobe'},{f:'lzG9'}]);
+    dk.bays[0].doors.left.t='none';dk.bays[dk.bays.length-1].doors.left.t='none';
   }else if(k==='stage'){
     [-36,-12,12,36].forEach((z,i)=>{
       const spec=[];for(let j=0;j<5;j++)spec.push(i===3?(j%2?{f:'led'}:{f:'lzFlat'}):i===0&&j===4?{in:'rack',b:'plain'}:null);
@@ -268,6 +293,7 @@ function toFloor(b){S.blocks=S.blocks.filter(x=>x!==b);S.blocks.unshift(b)}
 function blockStats(b){
   const edges=(4*b.h+4*b.w+4*b.d)/12,shelves=(b.bays.length+1)*((b.w*b.d-16)/144)*3.2,rods=4*(b.h/12)*0.7,strip=4;
   let shell=edges*2.4+shelves+rods+strip,gear=0,w=0;
+  if(b.rails&&b.rails!=='none')gear+=({all:4,both:2}[b.rails]||1)*22;
   b.bays.forEach(x=>{gear+=INSIDE[x.inside].lb;w+=INSIDE[x.inside].w;FACES.forEach(f=>{const dd=x.doors[f],d=DOORS[dd.t];gear+=d.lb;w+=d.w;if(dd.m){gear+=6;w+=25}})});
   return{shell,gear,lb:shell+gear,w};
 }
@@ -315,6 +341,8 @@ const M={
   frameArt:new THREE.MeshLambertMaterial({color:0x2b2f36}),
   screen:new THREE.MeshBasicMaterial({map:screenTex,side:THREE.DoubleSide}),
   lens:new THREE.MeshBasicMaterial({color:0xfff1b8}),
+  brush:new THREE.MeshLambertMaterial({color:0x14181d,side:THREE.DoubleSide}),
+  ghost:new THREE.MeshBasicMaterial({color:0x1e6fd9,transparent:true,opacity:0.07,depthWrite:false,side:THREE.DoubleSide}),
   lensBlue:new THREE.MeshBasicMaterial({color:0x8fd3ff}),
   led:new THREE.MeshBasicMaterial({color:0x37a0ff}),
   white:new THREE.MeshBasicMaterial({color:0xffffff}),
@@ -322,6 +350,7 @@ const M={
   green:new THREE.MeshLambertMaterial({color:0x2fb36b}),
   g9:new THREE.MeshBasicMaterial({map:grid9Tex}),
   g18:new THREE.MeshBasicMaterial({map:grid18Tex}),
+  ghostLine:new THREE.LineBasicMaterial({color:0x1e6fd9}),
   hover:new THREE.MeshBasicMaterial({color:0x1e6fd9,transparent:true,opacity:0.45,depthTest:false})
 };
 let coneMats=[],laserMats=[],smokeOn=false,paintMats=[],rgbs=[],motors=[],LB={cx:0,cy:3,cz:0,span:4};
@@ -348,6 +377,9 @@ function doorHardware(t,pv,pw,ph,seed){
   const s=Math.min(pw,ph),cy=ph/2,z=0.03;
   box(0.09,0.05,0.04,pw/2-0.12,ph-0.1,0.02,M.led,pv);
   if(t==='plain'){box(pw*0.22,0.045,0.045,0,ph*0.86,0.025,M.blue,pv);return}
+  if(t==='none')return;
+  if(t==='cable'){const r=s*0.2;const ring=new THREE.Mesh(new THREE.TorusGeometry(r,0.06,10,28),M.dark);ring.position.set(0,cy,0.02);pv.add(ring);const br=new THREE.Mesh(new THREE.CircleGeometry(r,28),M.brush);br.position.set(0,cy,0.01);pv.add(br);
+    [[0x1e6fd9,-0.07],[0x1f262e,0],[0xf07a2a,0.07]].forEach(([c,o])=>{const m=new THREE.MeshLambertMaterial({color:c});m.userData.temp=1;const cv=new THREE.CatmullRomCurve3([new THREE.Vector3(o,cy,-0.3),new THREE.Vector3(o,cy,0.25),new THREE.Vector3(o*2,cy-0.35,0.65),new THREE.Vector3(o*3,-0.15,0.8)]);pv.add(new THREE.Mesh(new THREE.TubeGeometry(cv,16,0.035,6,false),m))});return}
   if(t==='rgb'){for(let i=1;i<4;i++){box(pw,0.025,0.03,0,ph*i/4,0.012,M.dark,pv);box(0.025,ph,0.03,(i/4-0.5)*pw,cy,0.012,M.dark,pv)}return}
   if(t==='sub'||t==='mid'){const r=s*(t==='sub'?0.44:0.3);cyl(r,r*0.8,0.1,32,M.dark,pv,0,cy,z,Math.PI/2);cyl(r*0.26,r*0.26,0.12,20,M.blue,pv,0,cy,z+0.01,Math.PI/2);if(t==='mid')cyl(s*0.07,s*0.07,0.1,16,M.dark,pv,0,cy+r+s*0.12,z,Math.PI/2);return}
   if(t==='tweet'){for(const sx of[-1,1]){const d=new THREE.Mesh(new THREE.SphereGeometry(s*0.1,16,10,0,Math.PI*2,0,Math.PI/2),M.rod);d.rotation.x=Math.PI/2;d.position.set(sx*pw*0.2,cy,0.01);pv.add(d);cyl(s*0.15,s*0.15,0.05,20,M.dark,pv,sx*pw*0.2,cy,0.005,Math.PI/2)}return}
@@ -422,6 +454,7 @@ function buildBlock(b){
   for(const y of[t/2,H-t/2]){for(const sz of[-1,1])box(W,t,t,0,y,sz*(D/2-t/2),M.steel,tilt);for(const sx of[-1,1])box(t,t,D,sx*(W/2-t/2),y,0,M.steel,tilt)}
   for(const sx of[-1,1])for(const sz of[-1,1])for(const y of[t*0.6,H-t*0.6])box(t*1.3,t*1.3,t*1.3,sx*(W/2-t/2),y,sz*(D/2-t/2),M.blue,tilt);
   box(W-2*t,pt,D-2*t,0,H-pt/2,0,M.wood,tilt);
+  for(const y of[H+0.005,-0.005]){const gr=new THREE.Mesh(new THREE.TorusGeometry(CHASE/24,0.025,8,24),M.dark);gr.rotation.x=Math.PI/2;gr.position.y=y;tilt.add(gr)}
   const n=b.bays.length,topY=base+n*bayH,capH=H-topY-gap;
   const cast=[];
   for(const sx of[-1,1])for(const sz of[-1,1]){
@@ -429,7 +462,8 @@ function buildBlock(b){
     const ys=[t*0.6,H-t*0.6];for(let k=1;k<n;k++)ys.push(base+k*bayH);
     ys.forEach(y=>cast.push(new THREE.Vector3(sx*(W/2-t/2),y,sz*(D/2-t/2))));
   }
-  tilts[b.id]={tilt,cast};
+  const opens=[{pos:new THREE.Vector3(0,H,0),nrm:new THREE.Vector3(0,1,0),chase:new THREE.Vector3(0,H-0.4,0)},{pos:new THREE.Vector3(0,0,0),nrm:new THREE.Vector3(0,-1,0),chase:new THREE.Vector3(0,0.4,0)}];
+  tilts[b.id]={tilt,cast,opens};
   const Wi=W-2*t,Di=D-2*t,ch=CHASE/12,st=1.5/12;
   const shelf=y=>{
     const fd=(Di-ch)/2,fw=(Wi-ch)/2;
@@ -457,14 +491,29 @@ function buildBlock(b){
       let mat;
       if(d.t==='rgb'){mat=new THREE.MeshBasicMaterial({color:0x1e6fd9});mat.userData.temp=1;rgbs.push({mat,mover})}
       else if(d.t==='plain'&&d.c){mat=new THREE.MeshLambertMaterial({color:d.c});mat.userData.temp=1;paintMats.push(mat)}
-      else mat=(d.t==='plain'||d.t==='art'||d.t==='sensor')?M.wood:M.panel;
+      else if(d.t==='none')mat=M.ghost;
+      else mat=(d.t==='plain'||d.t==='art'||d.t==='sensor'||d.t==='cable')?M.wood:M.panel;
       const pm=box(pw,ph,pt,0,ph/2,-pt/2,mat,holder);pm.userData.doorPanel=1;
+      if(d.t==='none'){pm.castShadow=false;const eg=new THREE.LineSegments(new THREE.EdgesGeometry(pm.geometry),M.ghostLine);eg.position.copy(pm.position);holder.add(eg)}
+      else if(d.t==='cable')pm.material=M.wood;
+      if(d.t==='none'||d.t==='cable')opens.push({pos:new THREE.Vector3(0,0,-pt).applyMatrix4(new THREE.Matrix4().compose(fr.position,fr.quaternion,new THREE.Vector3(1,1,1))),nrm:new THREE.Vector3(0,0,1).applyQuaternion(fr.quaternion),chase:new THREE.Vector3(0,yc,0)});
       doorHardware(d.t,holder,pw,ph,b.id+i+f);
       if(d.m&&(d.t==='plain'||d.t==='rgb')){cyl(0.12,0.12,0.08,16,M.blue,holder,0,ph/2,-pt-0.04,Math.PI/2);box(0.06,0.06,0.04,-pw/2+0.12,ph-0.1,0.02,M.blue,holder);motors.push({mover,tx:0,ty:0,key:-1})}
       const tag={id:b.id,i,f};pivot.traverse(c=>c.userData.door=tag);
       if(d.open)pivot.rotation.x=1.72;else doorFX(d.t,fr,pw,ph);
     }
   });
+  if(b.rails&&b.rails!=='none'){
+    tilt.updateMatrix();const P=cast.map(v=>v.clone().applyMatrix4(tilt.matrix));
+    let ty=-1e9;P.forEach(v=>{if(v.y>ty)ty=v.y});const top=P.filter(v=>v.y>ty-0.05);
+    let x1=1e9,x2=-1e9,z1=1e9,z2=-1e9;top.forEach(v=>{x1=Math.min(x1,v.x);x2=Math.max(x2,v.x);z1=Math.min(z1,v.z);z2=Math.max(z2,v.z)});
+    const sides={front:['z',z2],back:['z',z1],left:['x',x1],right:['x',x2]};
+    const want=b.rails==='all'?['front','back','left','right']:b.rails==='both'?['front','back']:[b.rails];
+    want.forEach(sd=>{const[ax,val]=sides[sd];const ps=top.filter(v=>Math.abs(v[ax]-val)<0.05).sort((a,c)=>ax==='z'?a.x-c.x:a.z-c.z);
+      ps.forEach((v,k)=>{if(k%2&&k!==ps.length-1)return;buildRailPost(g,v)});
+      const ends=[ps[0],ps[ps.length-1]];if(ends[0]&&ends[1]&&ends[0].distanceTo(ends[1])>0.1)for(const hgt of[1.75,3.5])railTube(g,ends[0].clone().setY(ty+hgt),ends[1].clone().setY(ty+hgt));
+    });
+  }
   const ol=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(W+0.12,H+0.12,D+0.12)),new THREE.LineBasicMaterial({color:0x1e6fd9}));
   ol.material.userData.temp=1;ol.position.y=H/2;ol.visible=false;ol.userData.fx=1;tilt.add(ol);outlines[b.id]=ol;
   const lm=new THREE.SpriteMaterial({map:labelTex(b.name,false),depthTest:false});lm.userData.temp=1;
@@ -473,6 +522,12 @@ function buildBlock(b){
   return g;
 }
 
+function buildRailPost(p,v){
+  const g=new THREE.Group();g.position.copy(v);p.add(g);
+  cyl(0.07,0.07,0.12,14,M.blue,g,0,0.1,0);cyl(0.035,0.035,0.18,10,M.steelDark,g,0,0.02,0);
+  cyl(0.055,0.055,3.5,12,M.rod,g,0,1.85,0);
+}
+function railTube(p,a,b){const len=a.distanceTo(b);const m=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,len,12),M.rod);m.castShadow=true;m.position.copy(a).add(b).multiplyScalar(0.5);m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),b.clone().sub(a).normalize());p.add(m)}
 function buildPerson(){
   const p=new THREE.Group();
   const pants=new THREE.MeshLambertMaterial({color:0x5b6878}),shirt=new THREE.MeshLambertMaterial({color:0x1e6fd9}),skin=new THREE.MeshLambertMaterial({color:0xd9a77f});
@@ -494,6 +549,18 @@ function computeLinks(){
     LINKS.push({key:[a.id,b.id].sort().join('|'),a,b,pts,kind:dy>dxz?'stacked':'side by side'});
   }
   const keys=new Set(LINKS.map(l=>l.key));for(const k in S.locks)if(!keys.has(k))delete S.locks[k];
+  const opensW=b=>{const r=tilts[b.id];const q=new THREE.Quaternion();r.tilt.getWorldQuaternion(q);return r.opens.map(o=>({pos:r.tilt.localToWorld(o.pos.clone()),nrm:o.nrm.clone().applyQuaternion(q),chase:r.tilt.localToWorld(o.chase.clone())}))};
+  for(const L of LINKS){
+    const OA=opensW(L.a),OB=opensW(L.b);let best=null;
+    for(const a of OA)for(const c of OB){const d=a.pos.distanceTo(c.pos);if(d>2.6)continue;if(a.nrm.dot(c.nrm)>-0.8)continue;if(d>0.6){const ab=c.pos.clone().sub(a.pos).normalize();if(a.nrm.dot(ab)<0.4||c.nrm.dot(ab)>-0.4)continue}if(!best||d<best.d)best={a,c,d}}
+    if(!best)continue;L.cable=true;
+    [[0x1e6fd9,-0.06],[0x1f262e,0],[0xf07a2a,0.06]].forEach(([col,o])=>{
+      const off=new THREE.Vector3(o,0,o);
+      const pts=[best.a.chase,best.a.pos,best.a.pos.clone().addScaledVector(best.a.nrm,0.12),best.c.pos.clone().addScaledVector(best.c.nrm,0.12),best.c.pos,best.c.chase].map(v=>v.clone().add(off));
+      const m=new THREE.MeshLambertMaterial({color:col});m.userData.temp=1;
+      const tube=new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts),40,0.04,6,false),m);markFx(tube);world.add(tube);
+    });
+  }
   const up=new THREE.Vector3(0,1,0);
   for(const L of LINKS)for(const {p,q} of L.pts){
     const g=new THREE.Group(),m=p.clone().add(q).multiplyScalar(0.5),d=q.clone().sub(p);
@@ -515,7 +582,7 @@ function renderLinks(){
   const el=document.getElementById('links');const b=selBlock();if(!el||!b)return;
   const ls=linksFor(b);
   if(!ls.length){el.innerHTML='<div class="empty">Not touching another block. Push it against one, or tap Snap.</div>';return}
-  el.innerHTML=ls.map(l=>{const o=l.a===b?l.b:l.a,on=!!S.locks[l.key];return `<div class="lnk"><span>Block ${o.name}, ${l.kind}, ${l.pts.length} pins</span><button class="door${on?' on':''}" data-link="${l.key}">${on?'Locked':'Open'}</button></div>`}).join('');
+  el.innerHTML=ls.map(l=>{const o=l.a===b?l.b:l.a,on=!!S.locks[l.key];return `<div class="lnk"><span>Block ${o.name}, ${l.kind}, ${l.pts.length} pins${l.cable?', cables through':''}</span><button class="door${on?' on':''}" data-link="${l.key}">${on?'Locked':'Open'}</button></div>`}).join('');
 }
 function layoutBox(){const bx=new THREE.Box3();let any=false;for(const id in outlines){if(!outlines[id].parent)continue;bx.expandByObject(outlines[id]);any=true}return any?bx:null}
 
@@ -600,7 +667,8 @@ function applyTool(tag,tool){
   S.sel=b.id;clickSound();rebuild();renderSheet();
 }
 function toggleDoor(tag){
-  const b=S.blocks.find(x=>x.id===tag.id);if(!b)return;const d=b.bays[tag.i].doors[tag.f];d.open=!d.open;clickSound();
+  const b=S.blocks.find(x=>x.id===tag.id);if(!b)return;const d=b.bays[tag.i].doors[tag.f];
+  if(d.t==='none'){flash('Open slot. Drop a panel on it to close it.');if(S.sel!==b.id){S.sel=b.id;updateSel();renderSheet()}return}d.open=!d.open;clickSound();
   if(S.sel!==b.id){S.sel=b.id;rebuild();renderSheet()}else{rebuild();renderBays()}
 }
 let down=null;
@@ -643,6 +711,7 @@ function renderSheet(){
     <button class="btn" data-a="dopen">Open all</button>
     <button class="btn" data-a="dshut">Shut all</button>
   </div>
+  <div class="railrow"><span>Handrails</span><select id="railSel"><option value="none">None</option><option value="front">Front</option><option value="back">Back</option><option value="both">Front and back</option><option value="left">Left end</option><option value="right">Right end</option><option value="all">All sides</option></select></div>
   ${palette}
   <div class="sec">Cubbies, top to bottom</div>
   <div id="bays"></div>
@@ -650,6 +719,7 @@ function renderSheet(){
   <div id="links"></div>
   <div class="sec">Standard</div>
   <div class="spec">Every block is <b>${b.h}" tall, ${b.w}" wide, ${b.d}" deep</b>. Every cubby slot is <b>${b.bayU}U, ${(b.bayU*U).toFixed(1)}"</b>. Every door panel is <b>${(b.w-3)}" by ${(b.bayU*U-0.4).toFixed(1)}"</b>, the same on all four faces of every cubby on every block.</div>`;
+  const rs=document.getElementById('railSel');if(rs)rs.value=b.rails||'none';
   refreshSheetValues();renderBays();renderLinks();
 }
 function refreshSheetValues(){
@@ -708,7 +778,9 @@ sheet.addEventListener('click',e=>{
 });
 sheet.addEventListener('input',e=>{if(e.target.id==='cp'){S.customPaint=e.target.value;save();setArmed('paint:'+e.target.value,true)}});
 sheet.addEventListener('change',e=>{
-  const s=e.target;const b=selBlock();if(!b||s.dataset.k!=='inside')return;
+  const s=e.target;const b=selBlock();
+  if(b&&s.id==='railSel'){b.rails=s.value;clickSound();rebuild();refreshSheetValues();renderLinks();return}
+  if(!b||s.dataset.k!=='inside')return;
   b.bays[+s.dataset.i].inside=s.value;rebuild();refreshSheetValues();
 });
 /* drag and drop door panels */
@@ -743,6 +815,7 @@ document.getElementById('menu').addEventListener('click',e=>{
   if(pb){S.show.pattern=pb.dataset.pat;updateShowUI();save();return}
   if(mb){S.show.motion=mb.dataset.mot;motors.forEach(m=>m.key=-1);updateShowUI();save();return}
   const m=e.target.closest('[data-m]');if(!m)return;const k=m.dataset.m;
+  if(k==='catalog'){openCatalog();return}
   if(k==='overhead'){S.show.overhead=!S.show.overhead;rebuild();save();return}
   if(k==='add'){addBlock(null);body.classList.remove('menu')}
   else if(k==='frame'){frameView();body.classList.remove('menu')}
@@ -938,9 +1011,150 @@ function showFrame(t){
   }
   return kick;
 }
+function animateList(list,t,kick){
+  for(const o of list){
+    const u=o.userData;
+    if(u.kind==='ring'){const s=(t*u.speed+u.phase)%1;o.position.z=0.1+s*6;o.scale.setScalar((1+s*4)*(1+kick*0.25));o.material.opacity=0.6*(1-s)*(S.lights?1.4:1)}
+    else if(u.kind==='sweep')o.rotation.y=Math.sin(t*1.4)*0.5;
+    else if(u.kind==='strobe')o.material.opacity=((t*7)%1)<0.18?(S.lights?0.55:0.3):0;
+    else if(u.kind==='fan')o.rotation.y=Math.sin(t*0.8+u.phase)*0.35;
+    else if(u.kind==='wig'){o.rotation.y=Math.sin(t*3.1+u.phase)*0.45;o.rotation.x=Math.sin(t*2.3+u.phase)*0.3}
+    else if(u.kind==='smoke'){const a=o.geometry.attributes.position;u.seeds.forEach((sd,k)=>{const p=(t*0.18+sd[0])%1;a.setXYZ(k,sd[1]*p*3.2,-0.2+p*(1.2+sd[2]*0.8),0.3+p*8)});a.needsUpdate=true}
+  }
+}
+
+/* ---------- parts catalog ---------- */
+const PART_INFO={
+  block:['Structure','Bloxx block','The whole unit. A folded steel frame with wood panels on all four sides, split into six identical cubbies. Every cubby slot and every door panel is the same size on every block, so any panel fits any opening. Stands as a tower or lays down as a stage deck.'],
+  shelf:['Structure','Shelf, corner rods and collars','Each cubby sits on a thick folded steel shelf with a small hollow in the center. Four steel rods run up the inside corners and a blue collar locks every shelf to the rods so nothing racks or wobbles. Laid down as a deck, the shelves stand on edge as ribs and carry the load.'],
+  twist:['Structure','Twist lock pin and casting','Every corner and shelf line on the frame carries a casting that is both a pin and a receiver, genderless like a spacecraft docking ring. When two castings meet, a motor drives the pin into the sloped receiver, twists it a quarter turn and draws the blocks tight. The pin light goes green once the lock is confirmed.'],
+  chase:['Power and cabling','Cable chase and grommets','The hollow centers of the shelves stack into one chase running the full height of the block. Brush grommets in the lid and the base line up with the chase, so stacked blocks pass cables straight through. An open slot or a cable pass door lets cables cross into a block laid over the top.'],
+  strip:['Power and cabling','Full height power strip','A power strip runs up one inside corner with outlets in every cubby, fed from the UPS in the bottom cubby. Any panel plugs in where it sits.'],
+  rail:['Structure','Handrail','Posts that seat in the same twist lock castings used to join blocks, with top and mid rails between the end posts. Fit them to any open edge of a deck.']
+};
+const INSIDE_INFO={amp:'Powers the speaker doors in its block.',rack:'Rack gear on shelf rails: mixers, interfaces, processors.',ctrl:'Controller for the twist lock motors and door solenoids.',storage:'Spare panels, cables and small parts.',ups:'Sealed lead acid battery backup, bolted to the bottom shelf so the block can tip, lie down or stack. Feeds the full height power strip.',none:'Empty cubby.'};
+const DOOR_INFO={plain:'Blank wood door. Paint it any color and add a motor to make it swivel.',sub:'Low frequency driver on the door. Plays with the door shut.',mid:'Mid range driver on the door.',tweet:'Pair of high frequency domes on the door.',proj:'Pico projector mounted to the door, throwing through it with the door shut.',led:'LED wash grid on the door.',strobe:'Bright strobe bar on the door.',lzFlat:'Laser fan that sweeps flat across the room.',lz45:'Laser fan aimed up at forty five degrees.',lzUp:'Laser beams straight up.',lzWig:'Laser beams that wiggle on two axes.',lzG9:'Grid of laser emitters across the whole panel.',lzG18:'Dense grid of laser emitters across the whole panel.',smoke:'Smoke machine behind a vented door. Makes every laser in the layout pop.',sensor:'Sensor dome that sweeps the area in front of it.',art:'Framed art panel that hangs on the outside of the door.',rgb:'Backlit RGB panel. Side by side they form one big pixel wall. Takes a motor.',cable:'Door with a brush grommet so cables can leave or enter the cubby.',none:'Door removed. Leaves the slot open so cables can pass between blocks.'};
+let catSel='block',catR=null,catScene,catCam,catCtl,catRoot=null,catAnim=[],catUpd=null,catRgbs=[];
+const pt0=0.6/12,base0=2/12,t0=1.5/12;
+function catEnsure(){
+  if(catR)return;
+  const el=document.getElementById('catView');
+  catR=new THREE.WebGLRenderer({antialias:true});catR.setPixelRatio(Math.min(2,window.devicePixelRatio||1));el.appendChild(catR.domElement);
+  catScene=new THREE.Scene();catScene.background=new THREE.Color(0xeaf1f8);
+  catScene.add(new THREE.HemisphereLight(0xffffff,0x8899aa,0.95));const dl=new THREE.DirectionalLight(0xffffff,0.6);dl.position.set(5,9,7);catScene.add(dl);
+  const gg=new THREE.GridHelper(20,40,0x9fb3c8,0xc9d4e0);catScene.add(gg);
+  catCam=new THREE.PerspectiveCamera(40,1,0.05,200);
+  catCtl=new THREE.OrbitControls(catCam,catR.domElement);catCtl.enableDamping=true;catCtl.autoRotate=true;catCtl.autoRotateSpeed=1.6;
+}
+function catSize(){if(!catR)return;const el=document.getElementById('catView');catR.setSize(el.clientWidth,el.clientHeight);catCam.aspect=el.clientWidth/Math.max(1,el.clientHeight);catCam.updateProjectionMatrix()}
+function withLists(fn){const sv=[anim,coneMats,laserMats,spotCount,rgbs,motors];anim=[];coneMats=[];laserMats=[];spotCount=4;rgbs=[];motors=[];try{fn()}finally{catAnim=anim;catRgbs=rgbs;laserMats.forEach(m=>m.opacity=0.7);[anim,coneMats,laserMats,spotCount,rgbs,motors]=sv}}
+function catFrame(dist,ty){catCtl.target.set(0,ty,0);catCam.position.set(dist*0.75,ty+dist*0.45,dist);catCtl.update()}
+function cubbyShell(p,W,D,bayH){const t=t0;for(const sx of[-1,1])for(const sz of[-1,1]){box(t,bayH,t,sx*(W/2-t/2),bayH/2,sz*(D/2-t/2),M.steel,p);for(const y of[t*0.6,bayH-t*0.6])box(t*1.3,t*1.3,t*1.3,sx*(W/2-t/2),y,sz*(D/2-t/2),M.blue,p)}
+  for(const y of[t/2,bayH-t/2]){for(const sz of[-1,1])box(W,t,t,0,y,sz*(D/2-t/2),M.steel,p);for(const sx of[-1,1])box(t,t,D,sx*(W/2-t/2),y,0,M.steel,p)}
+  box(W-2*t,0.12,D-2*t,0,0.06,0,M.shelf,p);}
+function buildPart(key){
+  if(catRoot){catScene.remove(catRoot);disposeTree(catRoot)}
+  catRoot=new THREE.Group();catScene.add(catRoot);catUpd=null;
+  const W=STD.w/12,D=STD.d/12,bayH=STD.bayU*U/12,Wi=W-2*t0,ph=bayH-0.4/12;
+  withLists(()=>{
+    if(key==='block'){
+      const b=newBlock({id:'catalog',name:'',x:0,z:0},[]);
+      b.bays[1].doors.front.t='sub';b.bays[2].doors.front.t='mid';b.bays[3].doors.front.t='rgb';b.bays[4].doors.front.t='led';b.bays[5].doors.front.t='proj';b.bays[1].inside='amp';
+      const g=buildBlock(b);g.position.set(0,0,0);catRoot.add(g);delete outlines.catalog;delete labels.catalog;delete tilts.catalog;
+      const pv=[];g.traverse(c=>{if(c.userData.door&&c.userData.doorPanel&&c.userData.door.f==='front')pv.push(c.parent.parent.parent)});
+      catUpd=t=>{pv.forEach((pivot,k)=>{const ph2=(t*0.35+k*0.13)%1;pivot.rotation.x=ph2>0.75?Math.sin((ph2-0.75)/0.25*Math.PI)*1.6:0})};
+      catFrame(9,3.6);return;
+    }
+    if(key==='shelf'){
+      const ch=CHASE/12,Di=D-2*t0,st=1.5/12;
+      for(let k=0;k<3;k++){const y=0.2+k*bayH,fd=(Di-ch)/2,fw=(Wi-ch)/2;
+        box(Wi,st,fd,0,y,ch/2+fd/2,M.shelf,catRoot);box(Wi,st,fd,0,y,-ch/2-fd/2,M.shelf,catRoot);box(fw,st,ch,ch/2+fw/2,y,0,M.shelf,catRoot);box(fw,st,ch,-ch/2-fw/2,y,0,M.shelf,catRoot);
+        for(const sx of[-1,1])for(const sz of[-1,1])cyl(ROD*1.9,ROD*1.9,st*1.25,12,M.blue,catRoot,sx*(Wi/2-ROD*2.2),y,sz*(Di/2-ROD*2.2));}
+      const rods=[];for(const sx of[-1,1])for(const sz of[-1,1])rods.push(cyl(ROD,ROD,bayH*2+0.6,10,M.rod,catRoot,sx*(Wi/2-ROD*2.2),bayH+0.2,sz*(Di/2-ROD*2.2)));
+      catUpd=t=>{const k=(Math.sin(t*1.3)*0.5+0.5);rods.forEach(r=>r.position.y=bayH+0.2+k*0.9)};
+      catFrame(3.4,1.3);return;
+    }
+    if(key==='twist'){
+      const sc=new THREE.Group();sc.scale.setScalar(6);catRoot.add(sc);
+      const c1=box(0.17,0.17,0.17,0,0.4,0,M.blue,sc),c2=box(0.17,0.17,0.17,0,0.12,0,M.blue,sc);
+      const rec=new THREE.Mesh(new THREE.ConeGeometry(0.06,0.06,16,1,true),M.dark);rec.rotation.x=Math.PI;rec.position.y=0.21;sc.add(rec);
+      const pin=new THREE.Group();sc.add(pin);cyl(0.035,0.035,0.16,12,M.rod,pin,0,0,0);const head=box(0.12,0.025,0.04,0,-0.08,0,M.steelDark,pin);
+      const lm=new THREE.MeshBasicMaterial({color:0xf2a33a});lm.userData.temp=1;const led=new THREE.Mesh(new THREE.SphereGeometry(0.02,10,8),lm);led.position.set(0.09,0.42,0.09);sc.add(led);
+      catUpd=t=>{const c=(t*0.25)%1;const close=c<0.25?c/0.25:c<0.75?1:1-(c-0.75)/0.25;c1.position.y=0.4-close*0.11;pin.position.y=c1.position.y-0.12;
+        const tw=c<0.3?0:c<0.45?(c-0.3)/0.15:c<0.7?1:c<0.8?1-(c-0.7)/0.1:0;head.rotation.y=tw*Math.PI/2;lm.color.setHex(tw>=1?0x2fe36b:tw>0?0x37a0ff:0xf2a33a)};
+      catFrame(3,1.5);return;
+    }
+    if(key==='chase'){
+      const ch=CHASE/12;for(let k=0;k<3;k++){const y=k*bayH;const r=new THREE.Mesh(new THREE.TorusGeometry(ch/2,0.04,8,24),M.blue);r.rotation.x=Math.PI/2;r.position.y=y+0.2;catRoot.add(r)}
+      const flows=[];[[0x1e6fd9,0],[0x1f262e,1],[0xf07a2a,2]].forEach(([c,k])=>{const m=new THREE.MeshLambertMaterial({color:c});m.userData.temp=1;const a=k*2.1;flows.push(cyl(ch*0.16,ch*0.16,bayH*2.4,8,m,catRoot,Math.cos(a)*ch*0.2,bayH*1.2,Math.sin(a)*ch*0.2))});
+      catUpd=t=>{flows.forEach((f,k)=>f.position.y=bayH*1.2+Math.sin(t*1.5+k)*0.05)};catFrame(3.2,1.3);return;
+    }
+    if(key==='strip'){
+      box(0.12,bayH*2.5,0.07,0,bayH*1.25,0,M.orange,catRoot);for(let k=0;k<6;k++)box(0.08,0.09,0.03,0,0.25+k*bayH*0.42,0.05,M.dark,catRoot);
+      const glow=box(0.04,0.04,0.03,0,bayH*2.4,0.05,M.led,catRoot);catUpd=t=>{glow.visible=(t%1)<0.6};catFrame(3,1.4);return;
+    }
+    if(key==='rail'){
+      box(4,0.2,2,0,0.1,0,M.wood,catRoot);const posts=[];for(const x of[-1.8,0,1.8]){const g=new THREE.Group();g.position.set(x,0.2,0.9);catRoot.add(g);buildRailPost(g,new THREE.Vector3());posts.push(g)}
+      railTube(catRoot,new THREE.Vector3(-1.8,3.7,0.9),new THREE.Vector3(1.8,3.7,0.9));railTube(catRoot,new THREE.Vector3(-1.8,1.95,0.9),new THREE.Vector3(1.8,1.95,0.9));
+      catFrame(7,1.8);return;
+    }
+    if(key.startsWith('in:')){
+      const k=key.slice(3),ch=CHASE/12,Di=D-2*t0;cubbyShell(catRoot,W,D,bayH);insideGear(k,catRoot,0.12,Wi,Di,ch,bayH-0.12);catFrame(3.2,0.6);return;
+    }
+    if(key.startsWith('door:')){
+      const t=key.slice(5);cubbyShell(catRoot,W,D,bayH);
+      const fr=new THREE.Group();fr.position.set(0,bayH/2,D/2);catRoot.add(fr);
+      const pivot=new THREE.Group();pivot.position.set(0,-ph/2,0);fr.add(pivot);
+      const mover=new THREE.Group();mover.position.set(0,ph/2,0);pivot.add(mover);
+      const holder=new THREE.Group();holder.position.set(0,-ph/2,0);mover.add(holder);
+      let mat=t==='none'?M.ghost:(t==='plain'||t==='art'||t==='sensor'||t==='cable')?M.wood:M.panel;
+      if(t==='rgb'){mat=new THREE.MeshBasicMaterial({color:0x1e6fd9});mat.userData.temp=1;rgbs.push({mat,mover,wx:0,wy:0,wz:0})}
+      box(Wi,ph,pt0,0,ph/2,-pt0/2,mat,holder);doorHardware(t,holder,Wi,ph,'catalog'+t);
+      const fx=new THREE.Group();fr.add(fx);doorFX(t,fx,Wi,ph);
+      const motor=t==='plain'||t==='rgb';
+      catUpd=tt=>{const c=(tt*0.18)%1,o=c>0.78?Math.sin((c-0.78)/0.22*Math.PI):0;pivot.rotation.x=o*1.6;fx.visible=o<0.05;
+        if(motor&&o<0.01){mover.rotation.x=Math.sin(tt*2)*0.35;mover.rotation.y=Math.cos(tt*1.6)*0.35}else{mover.rotation.x=0;mover.rotation.y=0}};
+      catFrame(t.startsWith('lz')||t==='proj'||t==='smoke'?9:3.6,0.8);return;
+    }
+  });
+}
+function catDetails(key){
+  let grp,name,desc,meta='';
+  if(PART_INFO[key]){[grp,name,desc]=PART_INFO[key];
+    if(key==='block'){const b=newBlock({id:'x',name:''},[]),st=blockStats(b);meta=`${STD.h}" tall, ${STD.w}" wide, ${STD.d}" deep. Six cubbies of ${STD.bayU}U. Empty shell about ${Math.round(st.shell)} lb.`}
+    else if(key==='twist')meta='Castings at every corner and shelf line. Genderless, motor driven, lock confirmed per pin.';
+    else if(key==='shelf')meta=`Folded steel, ${CHASE}" center hollow, four corner rods with locking collars.`;
+    else if(key==='chase')meta=`${CHASE}" chase through every shelf, grommets in lid and base.`;
+    else if(key==='rail')meta='42" top rail, mid rail at half height, posts seat in twist lock castings. About 22 lb per side.';
+    else if(key==='strip')meta='Full height, outlets in every cubby, fed by the bottom UPS.';
+  }else if(key.startsWith('door:')){const k=key.slice(5),d=DOORS[k];grp='Door panel';name=d.name;desc=DOOR_INFO[k]||'';meta=`${STD.w-3}" by ${(STD.bayU*U-0.4).toFixed(1)}" panel, fits every opening. ${d.lb} lb, ${d.w} W.${k==='plain'||k==='rgb'?' Takes paint'+(k==='rgb'?' patterns':'')+' and a motor.':''}`}
+  else{const k=key.slice(3),d=INSIDE[k];grp='Inside gear';name=d.name;desc=INSIDE_INFO[k]||'';meta=`${d.lb} lb, ${d.w} W.`}
+  document.getElementById('catName').textContent=name;
+  document.getElementById('catMeta').textContent=grp+'. '+meta;
+  document.getElementById('catDesc').textContent=desc;
+}
+function catList(){
+  const it=(k,sw,label)=>`<div class="citem${catSel===k?' on':''}" data-part="${k}"><span class="sw" style="background:${sw}"></span>${label}</div>`;
+  let h='<div class="cgrp">Structure and power</div>'+Object.entries(PART_INFO).map(([k,v])=>it(k,'#1e6fd9',v[1])).join('');
+  h+='<div class="cgrp">Door panels</div>'+Object.entries(DOORS).map(([k,v])=>it('door:'+k,k==='rgb'?'linear-gradient(90deg,#f33,#3f3,#33f)':hex(v.color),v.name)).join('');
+  h+='<div class="cgrp">Inside gear</div>'+Object.entries(INSIDE).filter(([k])=>k!=='none').map(([k,v])=>it('in:'+k,'#2b3440',v.name)).join('');
+  document.getElementById('catList').innerHTML=h;
+}
+function openCatalog(key){document.body.classList.remove('menu');document.body.classList.add('cat');catEnsure();if(key)catSel=key;catList();catSize();buildPart(catSel);catDetails(catSel)}
+document.getElementById('catClose').onclick=()=>document.body.classList.remove('cat');
+document.getElementById('catList').addEventListener('click',e=>{const c=e.target.closest('[data-part]');if(!c)return;catSel=c.dataset.part;catList();buildPart(catSel);catDetails(catSel)});
+window.addEventListener('resize',catSize);
+function catFrameLoop(t,kick){
+  if(!catR||!document.body.classList.contains('cat'))return;
+  animateList(catAnim,t,kick);if(catUpd)catUpd(t);
+  catRgbs.forEach(r=>r.mat.color.setHSL((t*0.15)%1,1,0.5));
+  catCtl.update();catR.render(catScene,catCam);
+}
 function loop(){
   const t=clock.getElapsedTime();const kick=showFrame(t);
-  for(const o of anim){
+  animateList(anim,t,kick);
+  for(const lp of lockParts){}
+  if(false)for(const o of anim){
     const u=o.userData;
     if(u.kind==='ring'){const s=(t*u.speed+u.phase)%1;o.position.z=0.1+s*6;o.scale.setScalar((1+s*4)*(1+kick*0.25));o.material.opacity=0.6*(1-s)*(S.lights?1.4:1)}
     else if(u.kind==='sweep')o.rotation.y=Math.sin(t*1.4)*0.5;
@@ -950,7 +1164,7 @@ function loop(){
     else if(u.kind==='smoke'){const a=o.geometry.attributes.position;u.seeds.forEach((sd,k)=>{const p=(t*0.18+sd[0])%1;a.setXYZ(k,sd[1]*p*3.2,-0.2+p*(1.2+sd[2]*0.8),0.3+p*8)});a.needsUpdate=true}
   }
   for(const lp of lockParts){const tg=S.locks[lp.key]?Math.PI/2:0,dif=tg-lp.head.rotation.y;lp.head.rotation.y+=dif*0.12;lp.led.material.color.setHex(Math.abs(dif)<0.04?(S.locks[lp.key]?0x2fe36b:0xf2a33a):0x37a0ff)}
-  controls.update();renderer.render(scene,camera);requestAnimationFrame(loop);
+  controls.update();renderer.render(scene,camera);catFrameLoop(t,kick);requestAnimationFrame(loop);
 }
 resize();rebuild();renderSheet();frameView();roomStatus();if(sync.room)sync.connect();loop();
 </script>
