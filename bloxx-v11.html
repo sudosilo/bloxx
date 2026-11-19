@@ -65,8 +65,14 @@ input[type=range]{width:100%;accent-color:var(--blue)}
 body.cat #cat{display:flex}
 .cathead{height:54px;flex:0 0 54px;display:flex;align-items:center;gap:8px;padding:0 8px;border-bottom:3px solid var(--blue)}
 .ctitle{font-weight:900;letter-spacing:.1em;color:var(--blue);font-size:17px}
-#catView{flex:0 0 34vh;position:relative;background:#eaf1f8;touch-action:none}
-#catInfo{flex:0 0 24vh;overflow-y:auto;padding:10px 12px;border-bottom:1px solid var(--line)}
+#catView{flex:0 0 46vh;position:relative;background:#eaf1f8;touch-action:none}
+.cbar,.dbar{display:flex;align-items:center;gap:8px;height:52px;flex:0 0 52px;padding:0 10px;border-bottom:1px solid var(--line)}
+.dbar{padding:0;border:none;margin-bottom:6px}
+.cbar .cname,.dbar .cname{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ib.info{font-weight:900;font-family:Georgia,serif;color:var(--blue);font-size:20px}
+.pop{position:fixed;left:8px;right:8px;top:62px;max-height:52vh;overflow-y:auto;background:#fff;border:2px solid var(--blue);border-radius:12px;padding:12px 12px 14px;box-shadow:0 10px 30px #0003;z-index:80;display:none}
+.pop.open{display:block}
+.pop .ib{float:right;margin:0 0 6px 8px}
 .cname{font-weight:900;font-size:17px;color:var(--blue)}
 .cmeta{font-size:12px;color:var(--mute);margin:4px 0 6px;line-height:1.5}
 .cdesc{font-size:13px;line-height:1.5}
@@ -103,10 +109,12 @@ details>div{padding:0 12px 12px}
 <div id="view"></div>
 <div id="sheet"></div>
 <div id="ghost"></div>
+<div class="pop" id="dPop"><button class="ib" id="dPopClose" aria-label="Close">&#10005;</button><div id="dPopBody"></div></div>
 <div id="cat">
   <div class="cathead"><button class="ib" id="catClose" aria-label="Close">&#10005;</button><div class="ctitle">PARTS CATALOG</div></div>
   <div id="catView"></div>
-  <div id="catInfo"><div class="cname" id="catName"></div><div class="cmeta" id="catMeta"></div><div class="cdesc" id="catDesc"></div></div>
+  <div class="cbar"><div class="cname" id="catName"></div><button class="ib info" id="catInfoBtn" aria-label="Info">i</button></div>
+  <div class="pop" id="catPop"><button class="ib" id="catPopClose" aria-label="Close">&#10005;</button><div class="cname" id="catName2"></div><div class="cmeta" id="catMeta"></div><div class="cdesc" id="catDesc"></div></div>
   <div id="catList"></div>
 </div>
 <div id="scrim"></div>
@@ -710,7 +718,7 @@ function useTool(tag,tool){
   if(S.mode==='design'){const t=S.dsel;S.dsel=null;benchUntil[t]=performance.now()+3500;applyTool(tag,tool);return}
   applyTool(tag,tool);
 }
-function renderDesignInfo(){const el=document.getElementById('dcard');if(el)el.innerHTML=designInfo(S.dsel)}
+function renderDesignInfo(){const n=document.getElementById('dname');if(n)n.textContent=S.dsel?DOORS[S.dsel].name:'No panel picked';document.getElementById('dPopBody').innerHTML=designInfo(S.dsel)}
 function toggleDoor(tag){
   const b=S.blocks.find(x=>x.id===tag.id);if(!b)return;const d=b.bays[tag.i].doors[tag.f];
   if(d.t==='none'){flash(S.mode==='design'?'Open slot. Pick a panel on the bench first.':'Open slot. Drop a panel on it to close it.');if(S.sel!==b.id){S.sel=b.id;updateSel();renderSheet()}return}d.open=!d.open;clickSound();
@@ -736,7 +744,7 @@ function renderSheet(){
   if(S.mode==='design'&&b){
     sheet.innerHTML=`<div class="head"><div class="bname">Design mode</div><div class="stats" id="bstats"></div></div>
     <div class="hint" id="hint">Tap a panel on the bench, then tap a slot on the tower.</div>
-    <div class="dcard" id="dcard"></div>
+    <div class="dbar"><div class="cname" id="dname"></div><button class="ib info" data-a="dinfo" aria-label="Info">i</button></div>
     <div class="grid">
       <button class="btn primary" data-a="exitDesign" style="grid-column:span 2">Back to sandbox</button>
       <button class="btn" data-a="toSandbox" style="grid-column:span 2">Send to sandbox</button>
@@ -812,7 +820,8 @@ sheet.addEventListener('click',e=>{
   if(dbtn&&b){const tag={id:b.id,i:+dbtn.dataset.i,f:dbtn.dataset.f};const tool=currentTool();if(tool)useTool(tag,tool);else toggleDoor(tag);return}
   const da=e.target.closest('[data-a]');
   if(da&&S.mode==='design'){const act=da.dataset.a,bb=selBlock();
-    if(act==='exitDesign'){exitDesign();return}
+    if(act==='dinfo'){renderDesignInfo();document.getElementById('dPop').classList.toggle('open');return}
+    if(act==='exitDesign'){document.getElementById('dPop').classList.remove('open');exitDesign();return}
     if(act==='bare'){S.blocks=[bareBlock([])];S.sel=S.blocks[0].id;S.dsel=null;benchUntil={};rebuild();renderSheet();return}
     if(act==='toSandbox'&&bb){const copy=JSON.parse(JSON.stringify(bb));copy.id=uid();const sb=S.sandbox||{blocks:[],locks:{}};copy.name=nextName(sb.blocks);let maxR=-Infinity;sb.blocks.forEach(o=>{if(o.y===0)maxR=Math.max(maxR,fp(o).x2)});copy.y=0;copy.z=0;copy.x=isFinite(maxR)?Math.round(maxR+6+fp(copy).ax/2):0;sb.blocks.push(copy);sb.sel=copy.id;S.sandbox=sb;flash(`Sent to the sandbox as Block ${copy.name}.`);save();return}
   }
@@ -1282,7 +1291,7 @@ function catDetails(key){
     else if(key==='strip')meta='Full height, outlets in every cubby, fed by the bottom UPS.';
   }else if(key.startsWith('door:')){const k=key.slice(5),d=DOORS[k];grp='Door panel';name=d.name;desc=DOOR_INFO[k]||'';meta=`${STD.w-3}" by ${(STD.bayU*U-0.4).toFixed(1)}" panel, fits every opening. ${d.lb} lb, ${d.w} W.${k==='plain'||k==='rgb'?' Takes paint'+(k==='rgb'?' patterns':'')+' and a motor.':''}`}
   else{const k=key.slice(3),d=INSIDE[k];grp='Inside gear';name=d.name;desc=INSIDE_INFO[k]||'';meta=`${d.lb} lb, ${d.w} W.`}
-  document.getElementById('catName').textContent=name;
+  document.getElementById('catName').textContent=name;document.getElementById('catName2').textContent=name;
   document.getElementById('catMeta').textContent=grp+'. '+meta;
   document.getElementById('catDesc').textContent=desc;
 }
@@ -1294,7 +1303,10 @@ function catList(){
   document.getElementById('catList').innerHTML=h;
 }
 function openCatalog(key){document.body.classList.remove('menu');document.body.classList.add('cat');catEnsure();if(key)catSel=key;catList();catSize();buildPart(catSel);catDetails(catSel)}
-document.getElementById('catClose').onclick=()=>document.body.classList.remove('cat');
+document.getElementById('catClose').onclick=()=>{document.body.classList.remove('cat');document.getElementById('catPop').classList.remove('open')};
+document.getElementById('catInfoBtn').onclick=()=>document.getElementById('catPop').classList.toggle('open');
+document.getElementById('catPopClose').onclick=()=>document.getElementById('catPop').classList.remove('open');
+document.getElementById('dPopClose').onclick=()=>document.getElementById('dPop').classList.remove('open');
 document.getElementById('catList').addEventListener('click',e=>{const c=e.target.closest('[data-part]');if(!c)return;catSel=c.dataset.part;catList();buildPart(catSel);catDetails(catSel)});
 window.addEventListener('resize',catSize);
 function catFrameLoop(t,kick){
