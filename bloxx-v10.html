@@ -53,6 +53,8 @@ input[type=range]{width:100%;accent-color:var(--blue)}
 .lnk .door.on{background:#e3f7ea;border-color:#2fb36b;color:#1d7a45}
 .srow{display:grid;grid-template-columns:1fr 64px 64px;gap:6px;align-items:center;height:46px;border-bottom:1px solid #eef2f6;font-size:13px;font-weight:700}
 .srow span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dcard{height:150px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;background:#f7faff}
+.dcard .cname{font-size:16px}
 .roomrow{display:grid;grid-template-columns:1fr 64px 64px;gap:6px;margin-bottom:6px}
 .roomrow input{height:40px;border:1px solid var(--line);border-radius:9px;padding:0 10px;font:inherit;min-width:0}
 .rstat{height:36px;font-size:12px;color:var(--blue);font-weight:600;line-height:1.4;overflow:hidden;margin-bottom:8px}
@@ -117,6 +119,9 @@ details>div{padding:0 12px 12px}
       <button class="btn warn" data-m="clear">Clear all</button>
       <button class="btn primary" data-m="catalog" style="grid-column:span 2">Parts catalog</button>
     </div>
+  </div></details>
+  <details open><summary>Mode</summary><div>
+    <div class="mg"><button class="btn" data-m="mode-sandbox" id="mSandbox">Sandbox</button><button class="btn" data-m="mode-design" id="mDesign">Design mode</button></div>
   </div></details>
   <details open><summary>My layouts</summary><div>
     <div class="roomrow"><input id="saveName" placeholder="layout name" autocomplete="off"><button class="btn primary" id="saveBtn" style="grid-column:span 2">Save</button></div>
@@ -628,6 +633,9 @@ function rebuild(){
     over.position.set(c.x+1.5,lbx.max.y+12,c.z+7);over.target.position.set(c.x,0,c.z);over.target.updateMatrixWorld();
     if(S.show.overhead){const fx=new THREE.Group();const bar=new THREE.Mesh(new THREE.BoxGeometry(2.4,0.35,0.35),M.dark);fx.add(bar);const lens=new THREE.Mesh(new THREE.CylinderGeometry(0.22,0.22,0.1,18),M.lensBlue);lens.position.y=-0.22;fx.add(lens);fx.position.copy(over.position);fx.lookAt(over.target.position);markFx(fx);world.add(fx)}}
   const v=new THREE.Vector3();for(const r of rgbs.concat(motors)){r.mover.getWorldPosition(v);r.wx=v.x;r.wy=v.y;r.wz=v.z}
+  benchGroup=null;benchItems={};
+  if(S.mode==='design'){world.add(buildGarage());world.add(buildBench());world.updateMatrixWorld(true);const v2=new THREE.Vector3();for(const r of rgbs){if(r.wx==null){r.mover.getWorldPosition(v2);r.wx=v2.x;r.wy=v2.y;r.wz=v2.z}}}
+  grid.visible=S.mode!=='design';
   if(S.person){const bx=lbx;const p=buildPerson();if(bx)p.position.set(bx.min.x-2.4,0,bx.max.z-1);world.add(p)}
   updateSel();applyMode();save();renderTotals();
 }
@@ -640,7 +648,8 @@ function applyMode(){
   scene.background=new THREE.Color(bg);
   scene.fog=smokeOn?new THREE.FogExp2(bg,L?0.03:0.01):null;
   hemi.intensity=L?0.16:0.9;sun.intensity=L?0.05:0.6;
-  ground.material.color.set(L?0x2a3a52:0xdfe6ee);
+  ground.material.color.set(S.mode==='design'?(L?0x2f3a48:0xc9cfd5):(L?0x2a3a52:0xdfe6ee));
+  const ms=document.getElementById('mSandbox'),md=document.getElementById('mDesign');if(ms){ms.classList.toggle('primary',S.mode!=='design');md.classList.toggle('primary',S.mode==='design')}
   coneMats.forEach(m=>m.opacity=m.userData.base*(L?2.1:1));
   const lz=Math.min(1,0.45*(L?1.4:1)*(smokeOn?1.6:1));laserMats.forEach(m=>m.opacity=lz);
   M.wood.transparent=!!S.xray;M.wood.opacity=S.xray?0.18:1;M.wood.depthWrite=!S.xray;M.wood.needsUpdate=true;
@@ -656,6 +665,7 @@ function applyMode(){
 }
 function frameView(){
   const bx=layoutBox();if(!bx)return;
+  if(S.mode==='design'&&benchGroup){bx.expandByObject(benchGroup);const c=bx.getCenter(new THREE.Vector3());controls.target.set(c.x,2.6,c.z);camera.position.set(c.x+3,11.5,c.z+15);controls.update();return}
   const c=bx.getCenter(new THREE.Vector3()),sz=bx.getSize(new THREE.Vector3());
   const r=Math.max(sz.x,sz.y,sz.z);const dist=r*1.5+9;
   const dir=new THREE.Vector3(0.75,0.55,1).normalize();
@@ -674,6 +684,7 @@ function pickAt(cx,cy){
   ray.setFromCamera(new THREE.Vector2(((cx-r.left)/r.width)*2-1,-((cy-r.top)/r.height)*2+1),camera);
   for(const h of ray.intersectObject(world,true)){
     const o=h.object;if(o.userData.fx||o.type==='LineSegments'||o.type==='Sprite'||o.type==='Points')continue;
+    if(o.userData.bench)return{bench:o.userData.bench};
     let p=o;while(p&&!p.userData.blockId)p=p.parent;if(!p)continue;
     return{blockId:p.userData.blockId,door:o.userData.door||null,mesh:o};
   }
@@ -694,9 +705,15 @@ function applyTool(tag,tool){
   else if(tool==='motor'){if(d.t!=='plain'&&d.t!=='rgb'){flash('Motors fit plain and RGB doors.');return}d.m=!d.m}
   S.sel=b.id;clickSound();rebuild();renderSheet();
 }
+function currentTool(){return S.mode==='design'?(S.dsel?'door:'+S.dsel:null):armed}
+function useTool(tag,tool){
+  if(S.mode==='design'){const t=S.dsel;S.dsel=null;benchUntil[t]=performance.now()+3500;applyTool(tag,tool);return}
+  applyTool(tag,tool);
+}
+function renderDesignInfo(){const el=document.getElementById('dcard');if(el)el.innerHTML=designInfo(S.dsel)}
 function toggleDoor(tag){
   const b=S.blocks.find(x=>x.id===tag.id);if(!b)return;const d=b.bays[tag.i].doors[tag.f];
-  if(d.t==='none'){flash('Open slot. Drop a panel on it to close it.');if(S.sel!==b.id){S.sel=b.id;updateSel();renderSheet()}return}d.open=!d.open;clickSound();
+  if(d.t==='none'){flash(S.mode==='design'?'Open slot. Pick a panel on the bench first.':'Open slot. Drop a panel on it to close it.');if(S.sel!==b.id){S.sel=b.id;updateSel();renderSheet()}return}d.open=!d.open;clickSound();
   if(S.sel!==b.id){S.sel=b.id;rebuild();renderSheet()}else{rebuild();renderBays()}
 }
 let down=null;
@@ -704,7 +721,8 @@ renderer.domElement.addEventListener('pointerdown',e=>{down={x:e.clientX,y:e.cli
 renderer.domElement.addEventListener('pointerup',e=>{
   if(!down)return;const dx=e.clientX-down.x,dy=e.clientY-down.y;down=null;if(dx*dx+dy*dy>64)return;
   const hit=pickAt(e.clientX,e.clientY);if(!hit)return;
-  if(hit.door){if(armed)applyTool(hit.door,armed);else toggleDoor(hit.door);return}
+  if(hit.bench){S.dsel=S.dsel===hit.bench?null:hit.bench;clickSound();renderDesignInfo();save();return}
+  if(hit.door){const tool=currentTool();if(tool){useTool(hit.door,tool)}else toggleDoor(hit.door);return}
   if(S.sel!==hit.blockId){S.sel=hit.blockId;updateSel();renderSheet();save()}
 });
 
@@ -715,6 +733,20 @@ const insideOpts=Object.entries(INSIDE).filter(([k])=>k!=='ups').map(([k,v])=>`<
 function hintText(){return armed?`Tap doors to apply ${toolName(armed)}. Tap it again to stop.`:'Drag onto any door, or tap one then tap doors.'}
 function renderSheet(){
   const b=selBlock();
+  if(S.mode==='design'&&b){
+    sheet.innerHTML=`<div class="head"><div class="bname">Design mode</div><div class="stats" id="bstats"></div></div>
+    <div class="hint" id="hint">Tap a panel on the bench, then tap a slot on the tower.</div>
+    <div class="dcard" id="dcard"></div>
+    <div class="grid">
+      <button class="btn primary" data-a="exitDesign" style="grid-column:span 2">Back to sandbox</button>
+      <button class="btn" data-a="toSandbox" style="grid-column:span 2">Send to sandbox</button>
+      <button class="btn" data-a="bare" style="grid-column:span 2">Strip the tower</button>
+      <button class="btn" data-a="dopen">Open all</button>
+      <button class="btn" data-a="dshut">Shut all</button>
+    </div>
+    <div class="sec">Cubbies, top to bottom</div><div id="bays"></div>`;
+    renderDesignInfo();refreshSheetValues();renderBays();return;
+  }
   const chip=(tool,sw,label)=>`<div class="chip${armed===tool?' armed':''}" data-tool="${tool}"><span class="sw" style="background:${sw}"></span>${label}</div>`;
   const chips=Object.entries(DOORS).map(([k,v])=>chip('door:'+k,k==='rgb'?'linear-gradient(90deg,#f33,#3f3,#33f)':hex(v.color),v.short)).join('');
   const paints=PAINTS.map(p=>chip('paint:'+p[0],p[2]||p[0],p[1])).join('')+`<div class="chip"><input type="color" id="cp" value="${S.customPaint||'#00c2c7'}">Custom</div>`+chip('motor','#1e6fd9','Motor &#8635;');
@@ -777,7 +809,13 @@ function addBlock(src){
 function setArmed(k,force){armed=force?k:(armed===k?null:k);sheet.querySelectorAll('.chip[data-tool]').forEach(c=>c.classList.toggle('armed',c.dataset.tool===armed));const h=document.getElementById('hint');if(h)h.textContent=hintText()}
 sheet.addEventListener('click',e=>{
   const dbtn=e.target.closest('button.door');const b=selBlock();
-  if(dbtn&&b){const tag={id:b.id,i:+dbtn.dataset.i,f:dbtn.dataset.f};if(armed)applyTool(tag,armed);else toggleDoor(tag);return}
+  if(dbtn&&b){const tag={id:b.id,i:+dbtn.dataset.i,f:dbtn.dataset.f};const tool=currentTool();if(tool)useTool(tag,tool);else toggleDoor(tag);return}
+  const da=e.target.closest('[data-a]');
+  if(da&&S.mode==='design'){const act=da.dataset.a,bb=selBlock();
+    if(act==='exitDesign'){exitDesign();return}
+    if(act==='bare'){S.blocks=[bareBlock([])];S.sel=S.blocks[0].id;S.dsel=null;benchUntil={};rebuild();renderSheet();return}
+    if(act==='toSandbox'&&bb){const copy=JSON.parse(JSON.stringify(bb));copy.id=uid();const sb=S.sandbox||{blocks:[],locks:{}};copy.name=nextName(sb.blocks);let maxR=-Infinity;sb.blocks.forEach(o=>{if(o.y===0)maxR=Math.max(maxR,fp(o).x2)});copy.y=0;copy.z=0;copy.x=isFinite(maxR)?Math.round(maxR+6+fp(copy).ax/2):0;sb.blocks.push(copy);sb.sel=copy.id;S.sandbox=sb;flash(`Sent to the sandbox as Block ${copy.name}.`);save();return}
+  }
   const lb=e.target.closest('[data-link]');
   if(lb){const l=LINKS.find(x=>x.key===lb.dataset.link);if(l)setLocks([l],!S.locks[l.key]);return}
   const a=e.target.closest('[data-a]');if(!a)return;const act=a.dataset.a;
@@ -844,13 +882,15 @@ document.getElementById('menu').addEventListener('click',e=>{
   if(mb){S.show.motion=mb.dataset.mot;motors.forEach(m=>m.key=-1);updateShowUI();save();return}
   const m=e.target.closest('[data-m]');if(!m)return;const k=m.dataset.m;
   if(k==='catalog'){openCatalog();return}
+  if(k==='mode-design'){body.classList.remove('menu');enterDesign();return}
+  if(k==='mode-sandbox'){body.classList.remove('menu');exitDesign();return}
   if(k==='overhead'){S.show.overhead=!S.show.overhead;rebuild();save();return}
   if(k==='add'){addBlock(null);body.classList.remove('menu')}
   else if(k==='frame'){frameView();body.classList.remove('menu')}
   else if(k==='top'){topView();body.classList.remove('menu')}
   else if(k==='copy'){const b=selBlock();if(b)addBlock(b)}
   else if(k==='clear'){S.blocks=[];S.sel=null;rebuild();renderSheet()}
-  else if(k.startsWith('p-')){const pk=k.slice(2);
+  else if(k.startsWith('p-')){const pk=k.slice(2);if(S.mode==='design'){S.dblocks=S.blocks;S.mode='sandbox'}
     if(pk==='ledwall'){Object.assign(S.show,{pattern:'ripple',motion:'bass'});S.lights=true}
     if(pk==='shadow'){Object.assign(S.show,{pattern:'solid',motion:'facets',overhead:true});S.lights=true}
     S.blocks=presetBlocks(pk);S.sel=S.blocks[S.blocks.length-1].id;rebuild();renderSheet();frameView();body.classList.remove('menu')}
@@ -863,6 +903,70 @@ document.getElementById('menu').addEventListener('click',e=>{
   else if(k==='openall'||k==='shutall'){S.blocks.forEach(b=>b.bays.forEach(x=>FACES.forEach(f=>x.doors[f].open=k==='openall')));clickSound();rebuild();renderBays()}
   save();
 });
+/* ---------- design mode ---------- */
+let benchItems={},benchUntil={},benchGroup=null;
+function bareBlock(list){const b=newBlock({},list);b.bays.forEach(x=>FACES.forEach(f=>x.doors[f]={t:'none',open:false}));return b}
+function enterDesign(){
+  if(S.mode==='design')return;
+  S.sandbox={blocks:S.blocks,sel:S.sel,locks:S.locks};
+  S.blocks=Array.isArray(S.dblocks)&&S.dblocks.length?S.dblocks:[bareBlock([])];S.blocks.forEach(normBlock);
+  S.sel=S.blocks[0].id;S.locks={};S.mode='design';S.dsel=null;armed=null;
+  rebuild();renderSheet();frameView();
+}
+function exitDesign(){
+  if(S.mode!=='design')return;
+  S.dblocks=S.blocks;const sb=S.sandbox||{blocks:presetBlocks('single'),sel:null,locks:{}};
+  S.blocks=sb.blocks;S.sel=sb.sel||(S.blocks[0]&&S.blocks[0].id);S.locks=sb.locks||{};S.mode='sandbox';S.dsel=null;
+  rebuild();renderSheet();frameView();
+}
+function smallLabel(txt){return canvasTex(256,64,(g,w,h)=>{g.fillStyle='#ffffff';g.strokeStyle='#1e6fd9';g.lineWidth=5;g.beginPath();g.moveTo(14,3);g.arcTo(w-3,3,w-3,h-3,14);g.arcTo(w-3,h-3,3,h-3,14);g.arcTo(3,h-3,3,3,14);g.arcTo(3,3,w-3,3,14);g.closePath();g.fill();g.stroke();g.fillStyle='#1e6fd9';let fs=34;g.font=`800 ${fs}px system-ui,sans-serif`;while(g.measureText(txt).width>w-24&&fs>14){fs--;g.font=`800 ${fs}px system-ui,sans-serif`}g.textAlign='center';g.textBaseline='middle';g.fillText(txt,w/2,h/2+2)})}
+function buildGarage(){
+  const g=new THREE.Group();markFx(g);
+  const wallM=new THREE.MeshLambertMaterial({color:0xe3e8ee});wallM.userData.temp=1;
+  const wall=new THREE.Mesh(new THREE.PlaneGeometry(30,12),wallM);wall.position.set(0,6,-4);wall.receiveShadow=true;g.add(wall);
+  const stripe=new THREE.Mesh(new THREE.PlaneGeometry(30,0.5),M.blue);stripe.position.set(0,3.4,-3.98);g.add(stripe);
+  const door=new THREE.Mesh(new THREE.PlaneGeometry(9,8),M.shelf);door.position.set(-9,4,-3.97);g.add(door);
+  for(let k=0;k<8;k++){const l=new THREE.Mesh(new THREE.PlaneGeometry(9,0.05),M.steelDark);l.position.set(-9,0.5+k,-3.96);g.add(l)}
+  return g;
+}
+function buildBench(){
+  benchItems={};const g=new THREE.Group();
+  const types=Object.keys(DOORS).filter(k=>k!=='none');const cols=6,rows=Math.ceil(types.length/cols);
+  const pw=(STD.w-3)/12,ph=(STD.bayU*U-0.4)/12,pt=0.6/12,gx=pw+0.35,gz=ph+0.45;
+  const bw=cols*gx+0.4,bd=rows*gz+0.3,top=3,cz=5.4;
+  const topM=new THREE.MeshLambertMaterial({map:woodTex});topM.userData.temp=1;
+  const tb=new THREE.Mesh(new THREE.BoxGeometry(bw,0.15,bd),topM);tb.position.set(0,top-0.075,cz);tb.castShadow=tb.receiveShadow=true;g.add(tb);tb.userData.fx=1;
+  for(const sx of[-1,1])for(const sz of[-1,1]){const l=new THREE.Mesh(new THREE.BoxGeometry(0.15,top-0.15,0.15),M.steel);l.position.set(sx*(bw/2-0.2),(top-0.15)/2,cz+sz*(bd/2-0.2));l.userData.fx=1;g.add(l)}
+  const edge=new THREE.Mesh(new THREE.BoxGeometry(bw,0.06,0.06),M.blue);edge.position.set(0,top-0.04,cz+bd/2);edge.userData.fx=1;g.add(edge);
+  types.forEach((t,k)=>{
+    const c=k%cols,r=Math.floor(k/cols);
+    const it=new THREE.Group();it.position.set((c-(cols-1)/2)*gx,top+0.02,cz-bd/2+0.15+gz*r+ph);it.userData.bench=t;g.add(it);
+    const holder=new THREE.Group();holder.rotation.x=-Math.PI/2;it.add(holder);
+    let mat=t==='clear'?M.clear:(t==='plain'||t==='art'||t==='sensor'||t==='cable'||t==='stand')?M.wood:M.panel;
+    if(t==='rgb'){mat=new THREE.MeshBasicMaterial({color:0xff4fd8});mat.userData.temp=1;rgbs.push({mat,mover:it})}
+    const pm=box(pw,ph,pt,0,ph/2,-pt/2,mat,holder);pm.position.x=0;
+    holder.position.set(0,pt,0);doorHardware(t,holder,pw,ph,'bench'+t);
+    const ol=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(pw+0.1,0.12,ph+0.1)),M.ghostLine);ol.position.set(0,0.05,-ph/2);ol.visible=false;ol.userData.fx=1;it.add(ol);it.userData.outline=ol;
+    const lm=new THREE.SpriteMaterial({map:smallLabel(DOORS[t].short),depthTest:false});lm.userData.temp=1;const sp=new THREE.Sprite(lm);sp.scale.set(1.1,0.28,1);sp.position.set(0,0.5,-ph/2);sp.userData.fx=1;sp.renderOrder=6;it.add(sp);
+    it.traverse(o=>{if(!o.userData.fx)o.userData.bench=t});
+    benchItems[t]=it;
+  });
+  benchGroup=g;return g;
+}
+function benchFrame(t){
+  const now=performance.now();
+  for(const k in benchItems){const it=benchItems[k],u=benchUntil[k]||0;
+    if(now<u){it.visible=false;it.userData.pop=0;continue}
+    if(!it.visible){it.visible=true;it.userData.pop=now}
+    const p=it.userData.pop?Math.min(1,(now-it.userData.pop)/450):1;const s=p<1?0.2+0.8*(1-Math.pow(1-p,3))+Math.sin(p*Math.PI)*0.12:1;it.scale.setScalar(s);
+    const sel=S.dsel===k;it.position.y=3.02+(sel?0.25+Math.sin(t*4)*0.04:0);if(it.userData.outline)it.userData.outline.visible=sel;
+  }
+}
+function designInfo(t){
+  if(!t)return `<div class="cname">Pick a panel</div><div class="cmeta">Tap any panel on the bench to see what it is, then tap an open slot on the tower to fit it. Each panel comes back on the bench a few seconds after you use it.</div>`;
+  const d=DOORS[t];
+  return `<div class="cname">${d.name}</div><div class="cmeta">Door panel, ${STD.w-3}" by ${(STD.bayU*U-0.4).toFixed(1)}", ${d.lb} lb, ${d.w} W. Fits every opening on every block.</div><div class="cdesc">${DOOR_INFO[t]||''} ${SPECS[t]||''}</div>`;
+}
 function savedAll(){try{const v=JSON.parse(localStorage.getItem('bloxx-saved-layouts'));return v&&typeof v==='object'?v:{}}catch(e){return{}}}
 function savedPut(v){try{localStorage.setItem('bloxx-saved-layouts',JSON.stringify(v));return true}catch(e){return false}}
 function renderSaved(){
@@ -1080,6 +1184,7 @@ const PART_INFO={
 };
 const INSIDE_INFO={amp:'Powers the speaker doors in its block.',rack:'Rack gear on shelf rails: mixers, interfaces, processors.',ctrl:'Controller for the twist lock motors and door solenoids.',storage:'Spare panels, cables and small parts.',glow:'Light bar mounted in the top of the cubby. It follows the RGB show pattern, so a cubby behind a clear door becomes a glowing pixel.',ups:'Sealed lead acid battery backup, bolted to the bottom shelf so the block can tip, lie down or stack. Feeds the full height power strip.',none:'Empty cubby.'};
 const DOOR_INFO={plain:'Blank wood door. Paint it any color and add a motor to make it swivel.',sub:'Low frequency driver on the door. Plays with the door shut.',mid:'Mid range driver on the door.',tweet:'Pair of high frequency domes on the door.',proj:'Pico projector mounted to the door, throwing through it with the door shut.',led:'LED wash grid on the door.',strobe:'Bright strobe bar on the door.',lzFlat:'Laser fan that sweeps flat across the room.',lz45:'Laser fan aimed up at forty five degrees.',lzUp:'Laser beams straight up.',lzWig:'Laser beams that wiggle on two axes.',lzG9:'Grid of laser emitters across the whole panel.',lzG18:'Dense grid of laser emitters across the whole panel.',smoke:'Smoke machine behind a vented door. Makes every laser in the layout pop.',sensor:'Sensor dome that sweeps the area in front of it.',art:'Framed art panel that hangs on the outside of the door.',rgb:'Backlit RGB panel. Side by side they form one big pixel wall. Takes a motor.',cable:'Door with a brush grommet so cables can leave or enter the cubby.',clear:'Clear panel in a thin frame. Pair it with an inside light so the cubby glows through it.',stand:'Wood door with a fold down kickstand. The hinge stops the door flat, the two legs swing down and brace against the face below, so the open door works as a small table for gear.',none:'Door removed. Leaves the slot open so cables can pass between blocks.'};
+const SPECS={sub:'Planning spec: long throw low frequency driver, roughly 35 Hz to 150 Hz, wants an amplifier inside the same block.',mid:'Planning spec: cone and horn mid range, roughly 150 Hz to 4 kHz.',tweet:'Planning spec: pair of domes, roughly 4 kHz to 20 kHz.',proj:'Planning spec: short throw pico projector behind a clear window in the door.',led:'Planning spec: sixteen RGBW emitters in a wide wash.',strobe:'Planning spec: LED strobe bar, flash rate follows the beat.',lzFlat:'Show laser. Needs a trained operator and audience scanning rules wherever it is used.',lz45:'Show laser. Needs a trained operator and audience scanning rules wherever it is used.',lzUp:'Show laser. Needs a trained operator and audience scanning rules wherever it is used.',lzWig:'Show laser. Needs a trained operator and audience scanning rules wherever it is used.',lzG9:'Show laser array. Needs a trained operator and audience scanning rules wherever it is used.',lzG18:'Show laser array. Needs a trained operator and audience scanning rules wherever it is used.',smoke:'Planning spec: heater with a fluid tank in the cubby, needs warm up before the first burst.',rgb:'Planning spec: diffused RGB backlight, one big pixel per panel.',clear:'Planning spec: framed clear polycarbonate.',stand:'Planning spec: braced by two legs for light gear on top.',cable:'Planning spec: brush grommet sized for a fat cable bundle.'};
 let catSel='block',catR=null,catScene,catCam,catCtl,catRoot=null,catAnim=[],catUpd=null,catRgbs=[];
 const pt0=0.6/12,base0=2/12,t0=1.5/12;
 function catEnsure(){
@@ -1212,6 +1317,7 @@ function loop(){
     else if(u.kind==='smoke'){const a=o.geometry.attributes.position;u.seeds.forEach((sd,k)=>{const p=(t*0.18+sd[0])%1;a.setXYZ(k,sd[1]*p*3.2,-0.2+p*(1.2+sd[2]*0.8),0.3+p*8)});a.needsUpdate=true}
   }
   for(const lp of lockParts){const tg=S.locks[lp.key]?Math.PI/2:0,dif=tg-lp.head.rotation.y;lp.head.rotation.y+=dif*0.12;lp.led.material.color.setHex(Math.abs(dif)<0.04?(S.locks[lp.key]?0x2fe36b:0xf2a33a):0x37a0ff)}
+  if(S.mode==='design')benchFrame(t);
   controls.update();renderer.render(scene,camera);catFrameLoop(t,kick);requestAnimationFrame(loop);
 }
 resize();rebuild();renderSheet();frameView();roomStatus();if(sync.room)sync.connect();loop();
