@@ -180,7 +180,7 @@ details>div{padding:0 12px 12px}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
-const U=1.75,CHASE=4,ROD=0.5/12;
+const U=1.75,CHASE=4,ROD=0.5/12,OPEN_ANG=Math.PI/2;
 const STD={w:24,h:87,d:24,bayU:8};
 const DOORS={
   plain:{name:'Plain',short:'Plain',color:0xc9a26b,lb:6,w:0},
@@ -201,7 +201,9 @@ const DOORS={
   art:{name:'Art wall',short:'Art',color:0xf6efe2,lb:7,w:0},
   rgb:{name:'Backlit RGB',short:'RGB',color:0xff4fd8,lb:9,w:60},
   cable:{name:'Cable pass door',short:'Cable',color:0x8a5a2b,lb:5,w:0},
-  none:{name:'No door, open slot',short:'Open slot',color:0xffffff,lb:0,w:0}
+  none:{name:'No door, open slot',short:'Open slot',color:0xffffff,lb:0,w:0},
+  clear:{name:'Clear door',short:'Clear',color:0xbfe3ff,lb:7,w:0},
+  stand:{name:'Kickstand table door',short:'Kickstand',color:0xa8875a,lb:9,w:0}
 };
 const PAINTS=[['wood','Wood','#c9a26b'],['#1d2128','Black'],['#f4f6f8','White'],['#8a939d','Gray'],['#d8323c','Red'],['#1e6fd9','Blue'],['#2fb36b','Green'],['#f2c230','Yellow'],['#f07a2a','Orange'],['#7d4bd8','Purple']];
 const SHOW_DEF={pattern:'ripple',motion:'still',bpm:120,color:'#1e6fd9',overhead:false};
@@ -211,6 +213,7 @@ const INSIDE={
   rack:{name:'Rack gear',lb:30,w:200},
   ctrl:{name:'Lock controller',lb:3,w:10},
   storage:{name:'Storage',lb:10,w:0},
+  glow:{name:'Inside light',lb:3,w:30},
   ups:{name:'UPS, bolted',lb:65,w:0}
 };
 const FACES=['front','back','left','right'];
@@ -358,6 +361,7 @@ const M={
   g9:new THREE.MeshBasicMaterial({map:grid9Tex}),
   g18:new THREE.MeshBasicMaterial({map:grid18Tex}),
   ghostLine:new THREE.LineBasicMaterial({color:0x1e6fd9}),
+  clear:new THREE.MeshLambertMaterial({color:0xd6eeff,transparent:true,opacity:0.2,depthWrite:false}),
   hover:new THREE.MeshBasicMaterial({color:0x1e6fd9,transparent:true,opacity:0.45,depthTest:false})
 };
 let coneMats=[],laserMats=[],smokeOn=false,paintMats=[],rgbs=[],motors=[],LB={cx:0,cy:3,cz:0,span:4};
@@ -385,6 +389,8 @@ function doorHardware(t,pv,pw,ph,seed){
   box(0.09,0.05,0.04,pw/2-0.12,ph-0.1,0.02,M.led,pv);
   if(t==='plain'){box(pw*0.22,0.045,0.045,0,ph*0.86,0.025,M.blue,pv);return}
   if(t==='none')return;
+  if(t==='clear'){for(const[w,h,x,y]of[[pw,0.05,0,0.025],[pw,0.05,0,ph-0.025],[0.05,ph,-pw/2+0.025,cy],[0.05,ph,pw/2-0.025,cy]])box(w,h,0.06,x,y,0,M.steelDark,pv);box(pw*0.22,0.045,0.045,0,ph*0.86,0.03,M.blue,pv);return}
+  if(t==='stand'){box(pw*0.22,0.045,0.045,0,ph*0.86,0.025,M.blue,pv);for(const sx of[-1,1]){box(0.05,ph*0.6,0.035,sx*pw*0.34,ph*0.45,0.02,M.rod,pv);cyl(0.04,0.04,0.06,10,M.blue,pv,sx*pw*0.34,ph*0.78,0.03,0)}return}
   if(t==='cable'){const r=s*0.2;const ring=new THREE.Mesh(new THREE.TorusGeometry(r,0.06,10,28),M.dark);ring.position.set(0,cy,0.02);pv.add(ring);const br=new THREE.Mesh(new THREE.CircleGeometry(r,28),M.brush);br.position.set(0,cy,0.01);pv.add(br);
     [[0x1e6fd9,-0.07],[0x1f262e,0],[0xf07a2a,0.07]].forEach(([c,o])=>{const m=new THREE.MeshLambertMaterial({color:c});m.userData.temp=1;const cv=new THREE.CatmullRomCurve3([new THREE.Vector3(o,cy,-0.3),new THREE.Vector3(o,cy,0.25),new THREE.Vector3(o*2,cy-0.35,0.65),new THREE.Vector3(o*3,-0.15,0.8)]);pv.add(new THREE.Mesh(new THREE.TubeGeometry(cv,16,0.035,6,false),m))});return}
   if(t==='rgb'){for(let i=1;i<4;i++){box(pw,0.025,0.03,0,ph*i/4,0.012,M.dark,pv);box(0.025,ph,0.03,(i/4-0.5)*pw,cy,0.012,M.dark,pv)}return}
@@ -443,6 +449,13 @@ function doorFX(t,fr,pw,ph){
 
 function insideGear(k,tilt,yFloor,Wi,Di,ch,h){
   if(k==='none')return;
+  if(k==='glow'){
+    const bar=new THREE.MeshBasicMaterial({color:0x1e6fd9});bar.userData.temp=1;box(Wi*0.8,0.04,0.06,0,yFloor+h-0.05,0,bar,tilt);box(0.06,0.04,Di*0.8,0,yFloor+h-0.05,0,bar,tilt);
+    const vol=new THREE.MeshBasicMaterial({color:0x1e6fd9,transparent:true,opacity:0.45,depthWrite:false,blending:THREE.AdditiveBlending});vol.userData.temp=1;
+    const v=new THREE.Mesh(new THREE.BoxGeometry(Wi*0.96,h*0.96,Di*0.96),vol);v.position.set(0,yFloor+h/2,0);v.userData.fx=1;tilt.add(v);
+    const anchor=new THREE.Object3D();anchor.position.set(0,yFloor+h/2,0);tilt.add(anchor);
+    rgbs.push({mat:bar,mover:anchor});rgbs.push({mat:vol,mover:anchor});return;
+  }
   if(k==='ups'){const bw=(Wi-ch)/2*0.82;for(const sx of[-1,1]){const x=sx*(ch/2+(Wi-ch)/4);box(bw,h*0.55,Di*0.72,x,yFloor+h*0.275,0,M.ups,tilt);for(const sz of[-1,1])cyl(0.05,0.05,0.06,10,M.blue,tilt,x+bw*0.38*sx,yFloor+h*0.55+0.03,sz*Di*0.3);box(bw*0.6,0.04,0.03,x,yFloor+h*0.4,Di*0.36+0.02,M.led,tilt)}return}
   const q=Wi*0.36,qd=Di*0.36;
   if(k==='amp'){box(q,h*0.42,qd,-Wi*0.24,yFloor+h*0.21,Di*0.24,M.dark,tilt);box(q*0.7,0.04,0.03,-Wi*0.24,yFloor+h*0.3,Di*0.24+qd/2+0.02,M.led,tilt)}
@@ -499,7 +512,8 @@ function buildBlock(b){
       if(d.t==='rgb'){mat=new THREE.MeshBasicMaterial({color:0x1e6fd9});mat.userData.temp=1;rgbs.push({mat,mover})}
       else if(d.t==='plain'&&d.c){mat=new THREE.MeshLambertMaterial({color:d.c});mat.userData.temp=1;paintMats.push(mat)}
       else if(d.t==='none')mat=M.ghost;
-      else mat=(d.t==='plain'||d.t==='art'||d.t==='sensor'||d.t==='cable')?M.wood:M.panel;
+      else if(d.t==='clear')mat=M.clear;
+      else mat=(d.t==='plain'||d.t==='art'||d.t==='sensor'||d.t==='cable'||d.t==='stand')?M.wood:M.panel;
       const pm=box(pw,ph,pt,0,ph/2,-pt/2,mat,holder);pm.userData.doorPanel=1;
       if(d.t==='none'){pm.castShadow=false;const eg=new THREE.LineSegments(new THREE.EdgesGeometry(pm.geometry),M.ghostLine);eg.position.copy(pm.position);holder.add(eg)}
       else if(d.t==='cable')pm.material=M.wood;
@@ -507,7 +521,8 @@ function buildBlock(b){
       doorHardware(d.t,holder,pw,ph,b.id+i+f);
       if(d.m&&(d.t==='plain'||d.t==='rgb')){cyl(0.12,0.12,0.08,16,M.blue,holder,0,ph/2,-pt-0.04,Math.PI/2);box(0.06,0.06,0.04,-pw/2+0.12,ph-0.1,0.02,M.blue,holder);motors.push({mover,tx:0,ty:0,key:-1})}
       const tag={id:b.id,i,f};pivot.traverse(c=>c.userData.door=tag);
-      if(d.open)pivot.rotation.x=1.72;else doorFX(d.t,fr,pw,ph);
+      if(d.t==='clear')pm.castShadow=false;
+      if(d.open){pivot.rotation.x=OPEN_ANG;if(d.t==='stand')kickstand(fr,pw,ph,pt)}else doorFX(d.t,fr,pw,ph);
     }
   });
   if(b.rails&&b.rails!=='none'){
@@ -529,6 +544,12 @@ function buildBlock(b){
   return g;
 }
 
+function kickstand(fr,pw,ph,pt){
+  const g=new THREE.Group();fr.add(g);
+  for(const sx of[-1,1]){const a=new THREE.Vector3(sx*pw*0.34,-ph/2-pt-0.02,ph*0.82),b=new THREE.Vector3(sx*pw*0.34,-ph/2-ph*0.78,0.03);railTubeR(g,a,b,0.03,M.rod);cyl(0.045,0.045,0.06,10,M.blue,g,b.x,b.y,b.z+0.02,Math.PI/2);cyl(0.04,0.04,0.06,10,M.blue,g,a.x,a.y,a.z,0)}
+  return g;
+}
+function railTubeR(p,a,b,r,m){const len=a.distanceTo(b);const me=new THREE.Mesh(new THREE.CylinderGeometry(r,r,len,10),m);me.castShadow=true;me.position.copy(a).add(b).multiplyScalar(0.5);me.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),b.clone().sub(a).normalize());p.add(me)}
 function buildRailPost(p,v){
   const g=new THREE.Group();g.position.copy(v);p.add(g);
   cyl(0.07,0.07,0.12,14,M.blue,g,0,0.1,0);cyl(0.035,0.035,0.18,10,M.steelDark,g,0,0.02,0);
@@ -1057,8 +1078,8 @@ const PART_INFO={
   strip:['Power and cabling','Full height power strip','A power strip runs up one inside corner with outlets in every cubby, fed from the UPS in the bottom cubby. Any panel plugs in where it sits.'],
   rail:['Structure','Handrail','Posts that seat in the same twist lock castings used to join blocks, with top and mid rails between the end posts. Fit them to any open edge of a deck.']
 };
-const INSIDE_INFO={amp:'Powers the speaker doors in its block.',rack:'Rack gear on shelf rails: mixers, interfaces, processors.',ctrl:'Controller for the twist lock motors and door solenoids.',storage:'Spare panels, cables and small parts.',ups:'Sealed lead acid battery backup, bolted to the bottom shelf so the block can tip, lie down or stack. Feeds the full height power strip.',none:'Empty cubby.'};
-const DOOR_INFO={plain:'Blank wood door. Paint it any color and add a motor to make it swivel.',sub:'Low frequency driver on the door. Plays with the door shut.',mid:'Mid range driver on the door.',tweet:'Pair of high frequency domes on the door.',proj:'Pico projector mounted to the door, throwing through it with the door shut.',led:'LED wash grid on the door.',strobe:'Bright strobe bar on the door.',lzFlat:'Laser fan that sweeps flat across the room.',lz45:'Laser fan aimed up at forty five degrees.',lzUp:'Laser beams straight up.',lzWig:'Laser beams that wiggle on two axes.',lzG9:'Grid of laser emitters across the whole panel.',lzG18:'Dense grid of laser emitters across the whole panel.',smoke:'Smoke machine behind a vented door. Makes every laser in the layout pop.',sensor:'Sensor dome that sweeps the area in front of it.',art:'Framed art panel that hangs on the outside of the door.',rgb:'Backlit RGB panel. Side by side they form one big pixel wall. Takes a motor.',cable:'Door with a brush grommet so cables can leave or enter the cubby.',none:'Door removed. Leaves the slot open so cables can pass between blocks.'};
+const INSIDE_INFO={amp:'Powers the speaker doors in its block.',rack:'Rack gear on shelf rails: mixers, interfaces, processors.',ctrl:'Controller for the twist lock motors and door solenoids.',storage:'Spare panels, cables and small parts.',glow:'Light bar mounted in the top of the cubby. It follows the RGB show pattern, so a cubby behind a clear door becomes a glowing pixel.',ups:'Sealed lead acid battery backup, bolted to the bottom shelf so the block can tip, lie down or stack. Feeds the full height power strip.',none:'Empty cubby.'};
+const DOOR_INFO={plain:'Blank wood door. Paint it any color and add a motor to make it swivel.',sub:'Low frequency driver on the door. Plays with the door shut.',mid:'Mid range driver on the door.',tweet:'Pair of high frequency domes on the door.',proj:'Pico projector mounted to the door, throwing through it with the door shut.',led:'LED wash grid on the door.',strobe:'Bright strobe bar on the door.',lzFlat:'Laser fan that sweeps flat across the room.',lz45:'Laser fan aimed up at forty five degrees.',lzUp:'Laser beams straight up.',lzWig:'Laser beams that wiggle on two axes.',lzG9:'Grid of laser emitters across the whole panel.',lzG18:'Dense grid of laser emitters across the whole panel.',smoke:'Smoke machine behind a vented door. Makes every laser in the layout pop.',sensor:'Sensor dome that sweeps the area in front of it.',art:'Framed art panel that hangs on the outside of the door.',rgb:'Backlit RGB panel. Side by side they form one big pixel wall. Takes a motor.',cable:'Door with a brush grommet so cables can leave or enter the cubby.',clear:'Clear panel in a thin frame. Pair it with an inside light so the cubby glows through it.',stand:'Wood door with a fold down kickstand. The hinge stops the door flat, the two legs swing down and brace against the face below, so the open door works as a small table for gear.',none:'Door removed. Leaves the slot open so cables can pass between blocks.'};
 let catSel='block',catR=null,catScene,catCam,catCtl,catRoot=null,catAnim=[],catUpd=null,catRgbs=[];
 const pt0=0.6/12,base0=2/12,t0=1.5/12;
 function catEnsure(){
@@ -1087,7 +1108,7 @@ function buildPart(key){
       b.bays[1].doors.front.t='sub';b.bays[2].doors.front.t='mid';b.bays[3].doors.front.t='rgb';b.bays[4].doors.front.t='led';b.bays[5].doors.front.t='proj';b.bays[1].inside='amp';
       const g=buildBlock(b);g.position.set(0,0,0);catRoot.add(g);delete outlines.catalog;delete labels.catalog;delete tilts.catalog;
       const pv=[];g.traverse(c=>{if(c.userData.door&&c.userData.doorPanel&&c.userData.door.f==='front')pv.push(c.parent.parent.parent)});
-      catUpd=t=>{pv.forEach((pivot,k)=>{const ph2=(t*0.35+k*0.13)%1;pivot.rotation.x=ph2>0.75?Math.sin((ph2-0.75)/0.25*Math.PI)*1.6:0})};
+      catUpd=t=>{pv.forEach((pivot,k)=>{const ph2=(t*0.35+k*0.13)%1;pivot.rotation.x=ph2>0.75?Math.sin((ph2-0.75)/0.25*Math.PI)*OPEN_ANG:0})};
       catFrame(9,3.6);return;
     }
     if(key==='shelf'){
@@ -1127,7 +1148,7 @@ function buildPart(key){
       const k=key.slice(3),ch=CHASE/12,Di=D-2*t0;cubbyShell(catRoot,W,D,bayH);insideGear(k,catRoot,0.12,Wi,Di,ch,bayH-0.12);catFrame(3.2,0.6);return;
     }
     if(key.startsWith('door:')){
-      const t=key.slice(5);cubbyShell(catRoot,W,D,bayH);
+      const t=key.slice(5);cubbyShell(catRoot,W,D,bayH);box(W,bayH,D,0,-bayH/2,0,M.wood,catRoot);catRoot.position.y=bayH;
       const fr=new THREE.Group();fr.position.set(0,bayH/2,D/2);catRoot.add(fr);
       const pivot=new THREE.Group();pivot.position.set(0,-ph/2,0);fr.add(pivot);
       const mover=new THREE.Group();mover.position.set(0,ph/2,0);pivot.add(mover);
@@ -1136,10 +1157,12 @@ function buildPart(key){
       if(t==='rgb'){mat=new THREE.MeshBasicMaterial({color:0x1e6fd9});mat.userData.temp=1;rgbs.push({mat,mover,wx:0,wy:0,wz:0})}
       box(Wi,ph,pt0,0,ph/2,-pt0/2,mat,holder);doorHardware(t,holder,Wi,ph,'catalog'+t);
       const fx=new THREE.Group();fr.add(fx);doorFX(t,fx,Wi,ph);
+      const ks=t==='stand'?kickstand(fr,Wi,ph,pt0):null;if(ks)ks.visible=false;
+      if(t==='clear'){const vol=new THREE.MeshBasicMaterial({color:0x1e6fd9,transparent:true,opacity:0.3,depthWrite:false,blending:THREE.AdditiveBlending});vol.userData.temp=1;const v=new THREE.Mesh(new THREE.BoxGeometry(Wi*0.9,bayH*0.8,D*0.8),vol);v.position.y=bayH/2;catRoot.add(v);rgbs.push({mat:vol,mover:v})}
       const motor=t==='plain'||t==='rgb';
-      catUpd=tt=>{const c=(tt*0.18)%1,o=c>0.78?Math.sin((c-0.78)/0.22*Math.PI):0;pivot.rotation.x=o*1.6;fx.visible=o<0.05;
+      catUpd=tt=>{const c=(tt*0.18)%1,o=c>0.78?Math.sin((c-0.78)/0.22*Math.PI):0;pivot.rotation.x=o*OPEN_ANG;fx.visible=o<0.05;if(ks)ks.visible=o>0.97;
         if(motor&&o<0.01){mover.rotation.x=Math.sin(tt*2)*0.35;mover.rotation.y=Math.cos(tt*1.6)*0.35}else{mover.rotation.x=0;mover.rotation.y=0}};
-      catFrame(t.startsWith('lz')||t==='proj'||t==='smoke'?9:3.6,0.8);return;
+      catFrame(t.startsWith('lz')||t==='proj'||t==='smoke'?9:3.6,0.8+bayH);return;
     }
   });
 }
