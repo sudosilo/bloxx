@@ -216,8 +216,13 @@ const DOORS={
   cable:{name:'Cable pass door',short:'Cable',color:0x8a5a2b,lb:5,w:0},
   none:{name:'No door, open slot',short:'Open slot',color:0xffffff,lb:0,w:0},
   clear:{name:'Clear door',short:'Clear',color:0xbfe3ff,lb:7,w:0},
-  stand:{name:'Kickstand table door',short:'Kickstand',color:0xa8875a,lb:9,w:0}
+  stand:{name:'Kickstand table door',short:'Kickstand',color:0xa8875a,lb:9,w:0},
+  diffuser:{name:'Diffuser panel',short:'Diffuser',color:0xf3e9ff,lb:6,w:0},
+  video:{name:'Video panel',short:'Video',color:0x101820,lb:14,w:180},
+  spot:{name:'Spotlight on door',short:'Spot',color:0x2b3440,lb:11,w:150}
 };
+const LIT_IN=['glow','disco','spotIn','strobeIn'],PAINT_OK=['plain','diffuser'],MOTOR_OK=['plain','rgb','video','diffuser'];
+const TOOL_INFO={motor:['Motor','Swivel drive that fits behind plain, RGB, video and diffuser doors. The door tilts and pushes to the beat in the motor pattern set in the Show section.'],flip:['Flip','Turns a door around so its face points into the cubby. Open a flipped door and its face points up, so a speaker or light on it fires straight up.']};
 const PAINTS=[['wood','Wood','#c9a26b'],['#1d2128','Black'],['#f4f6f8','White'],['#8a939d','Gray'],['#d8323c','Red'],['#1e6fd9','Blue'],['#2fb36b','Green'],['#f2c230','Yellow'],['#f07a2a','Orange'],['#7d4bd8','Purple']];
 const SHOW_DEF={pattern:'ripple',motion:'still',bpm:120,color:'#1e6fd9',overhead:false};
 const INSIDE={
@@ -227,6 +232,9 @@ const INSIDE={
   ctrl:{name:'Lock controller',lb:3,w:10},
   storage:{name:'Storage',lb:10,w:0},
   glow:{name:'Inside light',lb:3,w:30},
+  disco:{name:'Mirror ball',lb:6,w:15},
+  spotIn:{name:'Moving spotlight',lb:12,w:150},
+  strobeIn:{name:'Inside strobe',lb:5,w:120},
   ups:{name:'UPS, bolted',lb:65,w:0}
 };
 const FACES=['front','back','left','right'];
@@ -303,6 +311,7 @@ function save(){try{localStorage.setItem('bloxx-v2-state',JSON.stringify(S))}cat
 let S=load()||defaultState();
 S.show=Object.assign({},SHOW_DEF,S.show||{});
 if(!S.locks||typeof S.locks!=='object')S.locks={};
+if(S.dsel&&!/^(door:|in:|paint:|motor$|flip$)/.test(S.dsel))S.dsel=null;
 const selBlock=()=>S.blocks.find(b=>b.id===S.sel);
 
 /* ---------- stacking ---------- */
@@ -374,9 +383,26 @@ const M={
   g9:new THREE.MeshBasicMaterial({map:grid9Tex}),
   g18:new THREE.MeshBasicMaterial({map:grid18Tex}),
   ghostLine:new THREE.LineBasicMaterial({color:0x1e6fd9}),
+  mirror:new THREE.MeshBasicMaterial({map:canvasTex(128,64,(g,w,h)=>{for(let x=0;x<w;x+=8)for(let y=0;y<h;y+=8){const v=120+Math.random()*135;g.fillStyle=`rgb(${v},${v},${v+10})`;g.fillRect(x,y,7,7)}})}),
   clear:new THREE.MeshLambertMaterial({color:0xd6eeff,transparent:true,opacity:0.2,depthWrite:false}),
   hover:new THREE.MeshBasicMaterial({color:0x1e6fd9,transparent:true,opacity:0.45,depthTest:false})
 };
+let vids=[],diffs=[];
+const vidCanvas=document.createElement('canvas');vidCanvas.width=512;vidCanvas.height=288;const vidCtx=vidCanvas.getContext('2d');const vidTex=new THREE.CanvasTexture(vidCanvas);
+function vidMat(){const m=new THREE.ShaderMaterial({uniforms:{map:{value:vidTex},off:{value:new THREE.Vector2(0,0)},rep:{value:new THREE.Vector2(1,1)}},
+  vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
+  fragmentShader:'uniform sampler2D map;uniform vec2 off;uniform vec2 rep;varying vec2 vUv;void main(){vec3 c=texture2D(map,off+vUv*rep).rgb;vec2 px=fract(vUv*vec2(32.0,20.0));float g=step(0.1,px.x)*step(0.1,px.y);gl_FragColor=vec4(c*(0.8+0.2*g),1.0);}'});m.userData.temp=1;return m}
+function drawVideo(t,kick){
+  const g=vidCtx,w=vidCanvas.width,h=vidCanvas.height;const base=new THREE.Color(S.show.color),hs={h:0,s:0,l:0};base.getHSL(hs);
+  const gr=g.createLinearGradient(0,0,w,h);gr.addColorStop(0,`hsl(${((hs.h*360+t*20)%360)},90%,${18+kick*20}%)`);gr.addColorStop(1,`hsl(${((hs.h*360+140+t*20)%360)},90%,${12+kick*10}%)`);g.fillStyle=gr;g.fillRect(0,0,w,h);
+  g.globalCompositeOperation='lighter';
+  for(let i=0;i<7;i++){const x=(Math.sin(t*0.6+i*1.7)*0.45+0.5)*w,y=(Math.cos(t*0.45+i*2.3)*0.45+0.5)*h,r=30+30*Math.sin(t+i)+kick*40;const rg=g.createRadialGradient(x,y,0,x,y,r);rg.addColorStop(0,`hsla(${(i*50+t*40)%360},100%,60%,.9)`);rg.addColorStop(1,'hsla(0,0%,0%,0)');g.fillStyle=rg;g.fillRect(x-r,y-r,r*2,r*2)}
+  for(let i=0;i<10;i++){g.fillStyle=`rgba(255,255,255,${0.04+kick*0.06})`;const x=((t*60+i*70)%(w+80))-40;g.fillRect(x,0,14,h)}
+  g.globalCompositeOperation='source-over';
+  g.fillStyle='rgba(255,255,255,.92)';g.font='900 64px system-ui,sans-serif';g.textBaseline='middle';const tx=w-((t*90)%(w+420));g.fillText('BLOXX',tx,h/2);
+  g.fillStyle='#1e6fd9';g.fillRect(0,h-10,w*((t*0.25)%1),10);
+  vidTex.needsUpdate=true;
+}
 let coneMats=[],laserMats=[],smokeOn=false,paintMats=[],rgbs=[],motors=[],LB={cx:0,cy:3,cz:0,span:4};
 function fxMat(color,op,additive=true){const m=new THREE.MeshBasicMaterial({color,transparent:true,opacity:op,depthWrite:false,side:THREE.DoubleSide,blending:additive?THREE.AdditiveBlending:THREE.NormalBlending});m.userData.temp=1;m.userData.base=op;coneMats.push(m);return m}
 function lzMat(color){const m=new THREE.LineBasicMaterial({color,transparent:true,opacity:0.6,depthWrite:false,blending:THREE.AdditiveBlending});m.userData.temp=1;laserMats.push(m);return m}
@@ -402,6 +428,8 @@ function doorHardware(t,pv,pw,ph,seed){
   box(0.09,0.05,0.04,pw/2-0.12,ph-0.1,0.02,M.led,pv);
   if(t==='plain'){box(pw*0.22,0.045,0.045,0,ph*0.86,0.025,M.blue,pv);return}
   if(t==='none')return;
+  if(t==='video'||t==='diffuser'){for(const[w,h,x,y]of[[pw,0.04,0,0.02],[pw,0.04,0,ph-0.02],[0.04,ph,-pw/2+0.02,cy],[0.04,ph,pw/2-0.02,cy]])box(w,h,0.04,x,y,0.01,M.dark,pv);return}
+  if(t==='spot'){box(s*0.4,s*0.4,0.05,0,cy,0.025,M.dark,pv);return}
   if(t==='clear'){for(const[w,h,x,y]of[[pw,0.05,0,0.025],[pw,0.05,0,ph-0.025],[0.05,ph,-pw/2+0.025,cy],[0.05,ph,pw/2-0.025,cy]])box(w,h,0.06,x,y,0,M.steelDark,pv);box(pw*0.22,0.045,0.045,0,ph*0.86,0.03,M.blue,pv);return}
   if(t==='stand'){box(pw*0.22,0.045,0.045,0,ph*0.86,0.025,M.blue,pv);for(const sx of[-1,1]){box(0.05,ph*0.6,0.035,sx*pw*0.34,ph*0.45,0.02,M.rod,pv);cyl(0.04,0.04,0.06,10,M.blue,pv,sx*pw*0.34,ph*0.78,0.03,0)}return}
   if(t==='cable'){const r=s*0.2;const ring=new THREE.Mesh(new THREE.TorusGeometry(r,0.06,10,28),M.dark);ring.position.set(0,cy,0.02);pv.add(ring);const br=new THREE.Mesh(new THREE.CircleGeometry(r,28),M.brush);br.position.set(0,cy,0.01);pv.add(br);
@@ -455,13 +483,36 @@ function doorFX(t,fr,pw,ph){
     const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(pos,3));
     const m=new THREE.PointsMaterial({map:smokeTex,size:2.2,transparent:true,opacity:0.32,depthWrite:false,color:0xdfe6ee});m.userData.temp=1;
     const pts=new THREE.Points(g,m);pts.userData={kind:'smoke',seeds,fx:1};fr.add(pts);anim.push(pts);
+  }else if(t==='spot'){
+    const pan=new THREE.Group();pan.position.z=0.08;fr.add(pan);cyl(0.06,0.06,0.1,12,M.blue,pan,0,0,0,Math.PI/2);
+    for(const sx of[-1,1])box(0.03,0.32,0.05,sx*0.17,0,0.12,M.blue,pan);
+    const head=new THREE.Group();head.position.z=0.18;pan.add(head);cyl(0.13,0.1,0.3,16,M.dark,head,0,0,0,Math.PI/2);cyl(0.1,0.1,0.02,16,M.lens,head,0,0,0.16,Math.PI/2);
+    const L=12;head.add(markFx(new THREE.Mesh(beam(new THREE.ConeGeometry(0.9,L,20,1,true),L),fxMat(0xfff3c4,0.16))));
+    if(spotCount<6){spotCount++;const sl=new THREE.SpotLight(0xfff3c4,1.8,22,0.16,0.4,1);const tg=new THREE.Object3D();tg.position.set(0,0,10);head.add(sl);head.add(tg);sl.target=tg}
+    pan.userData={kind:'mpan',phase:Math.random()*6};head.userData={kind:'mtilt',phase:Math.random()*6};anim.push(pan,head);
   }else if(t==='sensor'){
     const m=fxMat(0x2fb36b,0.35,false);m.wireframe=true;const c=new THREE.Mesh(beam(new THREE.ConeGeometry(2.2,4.5,12,3,true),4.5),m);c.userData={kind:'sweep',fx:1};fr.add(c);anim.push(c);
   }
 }
 
-function insideGear(k,tilt,yFloor,Wi,Di,ch,h){
+function insideGear(k,tilt,yFloor,Wi,Di,ch,h,open){
   if(k==='none')return;
+  if(k==='disco'){
+    const r=Math.min(Wi,Di)*0.22,cy=yFloor+h*0.55;cyl(0.015,0.015,h*0.45-r,6,M.rod,tilt,0,yFloor+h-(h*0.45-r)/2,0);
+    const ball=new THREE.Mesh(new THREE.SphereGeometry(r,18,12),M.mirror);ball.position.set(0,cy,0);ball.userData={kind:'spin',fx:1};tilt.add(ball);anim.push(ball);
+    if(open){const N=140,pos=new Float32Array(N*3);for(let q=0;q<N;q++){const a=Math.random()*Math.PI*2,e=(Math.random()-0.3)*1.2,R=5+Math.random()*6;pos[q*3]=Math.cos(a)*Math.cos(e)*R;pos[q*3+1]=Math.sin(e)*R;pos[q*3+2]=Math.sin(a)*Math.cos(e)*R}
+      const gg=new THREE.BufferGeometry();gg.setAttribute('position',new THREE.BufferAttribute(pos,3));const pm=new THREE.PointsMaterial({color:0xffffff,size:0.14,transparent:true,opacity:0.85,depthWrite:false,blending:THREE.AdditiveBlending});pm.userData.temp=1;
+      const pts=new THREE.Points(gg,pm);pts.position.set(0,cy,0);pts.userData={kind:'spinSlow',fx:1};tilt.add(pts);anim.push(pts)}
+    return;
+  }
+  if(k==='spotIn'){
+    box(Wi*0.3,0.08,Di*0.3,0,yFloor+0.04,0,M.dark,tilt);
+    const pan=new THREE.Group();pan.position.set(0,yFloor+0.1,0);tilt.add(pan);for(const sx of[-1,1])box(0.03,h*0.45,0.06,sx*0.18,h*0.22,0,M.blue,pan);
+    const head=new THREE.Group();head.position.y=h*0.38;pan.add(head);cyl(0.13,0.1,0.3,16,M.dark,head,0,0,0,Math.PI/2);cyl(0.1,0.1,0.02,16,M.lens,head,0,0,0.16,Math.PI/2);
+    if(open){const L=12;head.add(markFx(new THREE.Mesh(beam(new THREE.ConeGeometry(0.9,L,20,1,true),L),fxMat(0xfff3c4,0.16))));if(spotCount<6){spotCount++;const sl=new THREE.SpotLight(0xfff3c4,1.8,22,0.16,0.4,1);const tg=new THREE.Object3D();tg.position.set(0,0,10);head.add(sl);head.add(tg);sl.target=tg}}
+    pan.userData={kind:'spanFull',phase:Math.random()*6};head.userData={kind:'mtilt',phase:Math.random()*6};anim.push(pan,head);return;
+  }
+  if(k==='strobeIn'){box(Wi*0.6,0.05,0.08,0,yFloor+h-0.05,0,M.white,tilt);const v=new THREE.Mesh(new THREE.BoxGeometry(Wi*0.95,h*0.95,Di*0.95),fxMat(0xffffff,0.35));v.position.set(0,yFloor+h/2,0);v.userData={kind:'strobe',fx:1};tilt.add(v);anim.push(v);return}
   if(k==='glow'){
     const bar=new THREE.MeshBasicMaterial({color:0x1e6fd9});bar.userData.temp=1;box(Wi*0.8,0.04,0.06,0,yFloor+h-0.05,0,bar,tilt);box(0.06,0.04,Di*0.8,0,yFloor+h-0.05,0,bar,tilt);
     const vol=new THREE.MeshBasicMaterial({color:0x1e6fd9,transparent:true,opacity:0.45,depthWrite:false,blending:THREE.AdditiveBlending});vol.userData.temp=1;
@@ -513,7 +564,7 @@ function buildBlock(b){
   if(capH>0.1){for(const f of FACES){const fr=faceFrame(f,W,D,topY+capH/2);tilt.add(fr);box(Wi,capH-gap,pt,0,0,-pt/2,M.wood,fr)}}
   b.bays.forEach((bay,i)=>{
     const y0=base+i*bayH,yc=y0+bayH/2;
-    insideGear(bay.inside,tilt,y0,Wi,Di,ch,bayH-st);
+    insideGear(bay.inside,tilt,y0,Wi,Di,ch,bayH-st,FACES.some(f=>{const d=bay.doors[f];return d.open||['none','clear','diffuser'].includes(d.t)}));
     for(const f of FACES){
       const d=bay.doors[f];
       const fr=faceFrame(f,W,D,yc);tilt.add(fr);
@@ -524,18 +575,23 @@ function buildBlock(b){
       let mat;
       if(d.t==='rgb'){mat=new THREE.MeshBasicMaterial({color:0x1e6fd9});mat.userData.temp=1;rgbs.push({mat,mover})}
       else if(d.t==='plain'&&d.c){mat=new THREE.MeshLambertMaterial({color:d.c});mat.userData.temp=1;paintMats.push(mat)}
+      else if(d.t==='video'){mat=vidMat()}
+      else if(d.t==='diffuser'){const col=new THREE.Color(d.c||'#f3e9ff');if(LIT_IN.includes(bay.inside)){mat=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.88});diffs.push({mat,base:col.clone(),strobe:bay.inside==='strobeIn'})}else mat=new THREE.MeshLambertMaterial({color:col,transparent:true,opacity:0.62,depthWrite:false});mat.userData.temp=1}
       else if(d.t==='none')mat=M.ghost;
       else if(d.t==='clear')mat=M.clear;
       else mat=(d.t==='plain'||d.t==='art'||d.t==='sensor'||d.t==='cable'||d.t==='stand')?M.wood:M.panel;
       const pm=box(pw,ph,pt,0,ph/2,-pt/2,mat,holder);pm.userData.doorPanel=1;
       if(d.t==='none'){pm.castShadow=false;const eg=new THREE.LineSegments(new THREE.EdgesGeometry(pm.geometry),M.ghostLine);eg.position.copy(pm.position);holder.add(eg)}
       else if(d.t==='cable')pm.material=M.wood;
+      if(d.t==='video')vids.push({mat,mesh:pm,pw,ph});
       if(d.t==='none'||d.t==='cable')opens.push({pos:new THREE.Vector3(0,0,-pt).applyMatrix4(new THREE.Matrix4().compose(fr.position,fr.quaternion,new THREE.Vector3(1,1,1))),nrm:new THREE.Vector3(0,0,1).applyQuaternion(fr.quaternion),chase:new THREE.Vector3(0,yc,0)});
-      doorHardware(d.t,holder,pw,ph,b.id+i+f);
-      if(d.m&&(d.t==='plain'||d.t==='rgb')){cyl(0.12,0.12,0.08,16,M.blue,holder,0,ph/2,-pt-0.04,Math.PI/2);box(0.06,0.06,0.04,-pw/2+0.12,ph-0.1,0.02,M.blue,holder);motors.push({mover,tx:0,ty:0,key:-1})}
+      const hw=new THREE.Group();hw.position.set(0,0,-pt/2);holder.add(hw);const hwi=new THREE.Group();hwi.position.set(0,0,pt/2);hw.add(hwi);if(d.r)hw.rotation.y=Math.PI;
+      doorHardware(d.t,hwi,pw,ph,b.id+i+f);
+      if(d.m&&MOTOR_OK.includes(d.t)){cyl(0.12,0.12,0.08,16,M.blue,holder,0,ph/2,-pt-0.04,Math.PI/2);box(0.06,0.06,0.04,-pw/2+0.12,ph-0.1,0.02,M.blue,holder);motors.push({mover,tx:0,ty:0,key:-1})}
       const tag={id:b.id,i,f};pivot.traverse(c=>c.userData.door=tag);
       if(d.t==='clear')pm.castShadow=false;
-      if(d.open){pivot.rotation.x=OPEN_ANG;if(d.t==='stand')kickstand(fr,pw,ph,pt)}else doorFX(d.t,fr,pw,ph);
+      if(d.open){pivot.rotation.x=OPEN_ANG;if(d.t==='stand')kickstand(fr,pw,ph,pt)}
+      if(d.open||!d.r){const fxg=new THREE.Group();fxg.position.set(0,ph/2,0);hwi.add(fxg);doorFX(d.t,fxg,pw,ph)}
     }
   });
   if(b.rails&&b.rails!=='none'){
@@ -630,7 +686,7 @@ function layoutBox(){const bx=new THREE.Box3();let any=false;for(const id in out
 function rebuild(){
   hoverMesh.visible=false;
   scene.remove(world);disposeTree(world);world=new THREE.Group();scene.add(world);
-  anim=[];spotCount=0;outlines={};labels={};tilts={};coneMats=[];laserMats=[];paintMats=[];rgbs=[];motors=[];
+  anim=[];spotCount=0;outlines={};labels={};tilts={};coneMats=[];vids=[];diffs=[];laserMats=[];paintMats=[];rgbs=[];motors=[];
   S.blocks.forEach(normBlock);computeElev();
   smokeOn=S.blocks.some(b=>b.bays.some(x=>FACES.some(f=>x.doors[f].t==='smoke'&&!x.doors[f].open)));
   for(const b of S.blocks)world.add(buildBlock(b));
@@ -640,6 +696,11 @@ function rebuild(){
   if(lbx){const c=lbx.getCenter(new THREE.Vector3()),sz=lbx.getSize(new THREE.Vector3());LB={cx:c.x,cy:c.y,cz:c.z,span:Math.max(2,sz.x,sz.y,sz.z),top:lbx.max.y};
     over.position.set(c.x+1.5,lbx.max.y+12,c.z+7);over.target.position.set(c.x,0,c.z);over.target.updateMatrixWorld();
     if(S.show.overhead){const fx=new THREE.Group();const bar=new THREE.Mesh(new THREE.BoxGeometry(2.4,0.35,0.35),M.dark);fx.add(bar);const lens=new THREE.Mesh(new THREE.CylinderGeometry(0.22,0.22,0.1,18),M.lensBlue);lens.position.y=-0.22;fx.add(lens);fx.position.copy(over.position);fx.lookAt(over.target.position);markFx(fx);world.add(fx)}}
+  {const groups={},q=new THREE.Quaternion(),c=new THREE.Vector3();
+    for(const vd of vids){if(!vd.mesh)continue;vd.mesh.getWorldPosition(c);vd.mesh.getWorldQuaternion(q);const rt=new THREE.Vector3(1,0,0).applyQuaternion(q),up=new THREE.Vector3(0,1,0).applyQuaternion(q),nm=new THREE.Vector3(0,0,1).applyQuaternion(q);
+      vd.u=c.dot(rt);vd.v=c.dot(up);const key=[nm.x,nm.y,nm.z].map(x=>Math.round(x)).join(',')+'|'+[rt.x,rt.y,rt.z].map(x=>Math.round(x)).join(',');(groups[key]=groups[key]||[]).push(vd)}
+    for(const k in groups){const G=groups[k];let u1=1e9,u2=-1e9,v1=1e9,v2=-1e9;G.forEach(vd=>{u1=Math.min(u1,vd.u-vd.pw/2);u2=Math.max(u2,vd.u+vd.pw/2);v1=Math.min(v1,vd.v-vd.ph/2);v2=Math.max(v2,vd.v+vd.ph/2)});
+      G.forEach(vd=>{vd.mat.uniforms.rep.value.set(vd.pw/(u2-u1),vd.ph/(v2-v1));vd.mat.uniforms.off.value.set((vd.u-vd.pw/2-u1)/(u2-u1),(vd.v-vd.ph/2-v1)/(v2-v1))})}}
   const v=new THREE.Vector3();for(const r of rgbs.concat(motors)){r.mover.getWorldPosition(v);r.wx=v.x;r.wy=v.y;r.wz=v.z}
   benchGroup=null;benchItems={};
   if(S.mode==='design'){world.add(buildGarage());world.add(buildBench());world.updateMatrixWorld(true);const v2=new THREE.Vector3();for(const r of rgbs){if(r.wx==null){r.mover.getWorldPosition(v2);r.wx=v2.x;r.wy=v2.y;r.wz=v2.z}}}
@@ -673,7 +734,7 @@ function applyMode(){
 }
 function frameView(){
   const bx=layoutBox();if(!bx)return;
-  if(S.mode==='design'&&benchGroup){bx.expandByObject(benchGroup);const c=bx.getCenter(new THREE.Vector3());controls.target.set(c.x,2.6,c.z);camera.position.set(c.x+3,11.5,c.z+15);controls.update();return}
+  if(S.mode==='design'&&benchGroup){bx.expandByObject(benchGroup);const c=bx.getCenter(new THREE.Vector3()),sz=bx.getSize(new THREE.Vector3()),r=Math.max(sz.x,sz.z)/Math.min(1,camera.aspect*1.3);controls.target.set(c.x,2.6,c.z+1);camera.position.set(c.x+1.5,4+r*0.95,c.z+1+r*1.05);controls.update();return}
   const c=bx.getCenter(new THREE.Vector3()),sz=bx.getSize(new THREE.Vector3());
   const r=Math.max(sz.x,sz.y,sz.z);const dist=r*1.5+9;
   const dir=new THREE.Vector3(0.75,0.55,1).normalize();
@@ -704,21 +765,23 @@ function showHover(hit){
   const m=doorMeshFor(hit.door);if(!m){hoverMesh.visible=false;return}
   const p=m.geometry.parameters;hoverMesh.matrix.copy(m.matrixWorld).multiply(new THREE.Matrix4().makeScale(p.width*1.04,p.height*1.04,p.depth*2.5));hoverMesh.visible=true;
 }
-function toolName(tool){if(!tool)return'';if(tool.startsWith('door:'))return DOORS[tool.slice(5)].name;if(tool==='motor')return'Motor';const v=tool.slice(6);const p=PAINTS.find(x=>x[0]===v);return(p?p[1]:'Custom')+' paint'}
+function toolName(tool){if(!tool)return'';if(tool.startsWith('door:'))return DOORS[tool.slice(5)].name;if(tool.startsWith('in:'))return INSIDE[tool.slice(3)].name;if(tool==='motor')return'Motor';if(tool==='flip')return'Flip';const v=tool.slice(6);const p=PAINTS.find(x=>x[0]===v);return(p?p[1]:'Custom')+' paint'}
 function flash(msg){const h=document.getElementById('hint');if(!h)return;h.textContent=msg;h.style.color='#b3261e';clearTimeout(flash.t);flash.t=setTimeout(()=>{const e=document.getElementById('hint');if(e){e.textContent=hintText();e.style.color=''}},1800)}
 function applyTool(tag,tool){
   const b=S.blocks.find(x=>x.id===tag.id);if(!b)return;const d=b.bays[tag.i].doors[tag.f];
-  if(tool.startsWith('door:')){d.t=tool.slice(5);d.open=false;if(d.t!=='plain'&&d.t!=='rgb')d.m=false}
-  else if(tool.startsWith('paint:')){if(d.t!=='plain'){flash('Paint goes on plain doors.');return}const v=tool.slice(6);d.c=v==='wood'?null:v}
-  else if(tool==='motor'){if(d.t!=='plain'&&d.t!=='rgb'){flash('Motors fit plain and RGB doors.');return}d.m=!d.m}
+  if(tool.startsWith('door:')){d.t=tool.slice(5);d.open=false;if(!MOTOR_OK.includes(d.t))d.m=false;if(d.t==='none')d.r=false}
+  else if(tool.startsWith('paint:')){if(!PAINT_OK.includes(d.t)){flash('Paint goes on plain and diffuser doors.');return}const v=tool.slice(6);d.c=v==='wood'?null:v}
+  else if(tool==='motor'){if(!MOTOR_OK.includes(d.t)){flash('Motors fit plain, RGB, video and diffuser doors.');return}d.m=!d.m}
+  else if(tool==='flip'){if(d.t==='none'){flash('No door here to flip.');return}d.r=!d.r}
+  else if(tool.startsWith('in:')){if(tag.i===0){flash('The bottom cubby holds the bolted UPS.');return}b.bays[tag.i].inside=tool.slice(3)}
   S.sel=b.id;clickSound();rebuild();renderSheet();
 }
-function currentTool(){return S.mode==='design'?(S.dsel?'door:'+S.dsel:null):armed}
+function currentTool(){return S.mode==='design'?(S.dsel||null):armed}
 function useTool(tag,tool){
-  if(S.mode==='design'){const t=S.dsel;S.dsel=null;benchUntil[t]=performance.now()+3500;applyTool(tag,tool);return}
+  if(S.mode==='design'){const t=S.dsel;if(benchItems[t]){S.dsel=null;benchUntil[t]=performance.now()+3500}applyTool(tag,tool);renderDesignInfo();return}
   applyTool(tag,tool);
 }
-function renderDesignInfo(){const n=document.getElementById('dname');if(n)n.textContent=S.dsel?DOORS[S.dsel].name:'No panel picked';document.getElementById('dPopBody').innerHTML=designInfo(S.dsel)}
+function renderDesignInfo(){const n=document.getElementById('dname');if(n)n.textContent=S.dsel?toolName(S.dsel):'Nothing picked';document.getElementById('dPopBody').innerHTML=designInfo(S.dsel)}
 function toggleDoor(tag){
   const b=S.blocks.find(x=>x.id===tag.id);if(!b)return;const d=b.bays[tag.i].doors[tag.f];
   if(d.t==='none'){flash(S.mode==='design'?'Open slot. Pick a panel on the bench first.':'Open slot. Drop a panel on it to close it.');if(S.sel!==b.id){S.sel=b.id;updateSel();renderSheet()}return}d.open=!d.open;clickSound();
@@ -752,12 +815,13 @@ function renderSheet(){
       <button class="btn" data-a="dopen">Open all</button>
       <button class="btn" data-a="dshut">Shut all</button>
     </div>
+    <div class="sec">Paint and tint</div><div class="chips">${PAINTS.map(p=>`<div class="chip${S.dsel==='paint:'+p[0]?' armed':''}" data-dpaint="paint:${p[0]}"><span class="sw" style="background:${p[2]||p[0]}"></span>${p[1]}</div>`).join('')}</div>
     <div class="sec">Cubbies, top to bottom</div><div id="bays"></div>`;
     renderDesignInfo();refreshSheetValues();renderBays();return;
   }
   const chip=(tool,sw,label)=>`<div class="chip${armed===tool?' armed':''}" data-tool="${tool}"><span class="sw" style="background:${sw}"></span>${label}</div>`;
   const chips=Object.entries(DOORS).map(([k,v])=>chip('door:'+k,k==='rgb'?'linear-gradient(90deg,#f33,#3f3,#33f)':hex(v.color),v.short)).join('');
-  const paints=PAINTS.map(p=>chip('paint:'+p[0],p[2]||p[0],p[1])).join('')+`<div class="chip"><input type="color" id="cp" value="${S.customPaint||'#00c2c7'}">Custom</div>`+chip('motor','#1e6fd9','Motor &#8635;');
+  const paints=PAINTS.map(p=>chip('paint:'+p[0],p[2]||p[0],p[1])).join('')+`<div class="chip"><input type="color" id="cp" value="${S.customPaint||'#00c2c7'}">Custom</div>`+chip('motor','#1e6fd9','Motor &#8635;')+chip('flip','#1e6fd9','Flip &#8644;');
   const palette=`<div class="sec">Door panels</div><div class="hint" id="hint">${hintText()}</div><div class="chips">${chips}</div><div class="sec">Paint and motor</div><div class="chips">${paints}</div>`;
   if(!b){sheet.innerHTML=`<div class="head"><div class="bname">No block selected</div></div><div class="grid"><button class="btn primary" data-a="add" style="grid-column:span 2">Add block</button></div>${palette}`;return}
   sheet.innerHTML=`
@@ -802,7 +866,7 @@ function renderBays(){
   let h='';
   for(let i=b.bays.length-1;i>=0;i--){const bay=b.bays[i];
     const sel=i===0?`<select disabled><option>UPS, bolted</option></select>`:`<select data-i="${i}" data-k="inside">${insideOpts}</select>`;
-    const doors=FACES.map(f=>{const d=bay.doors[f],D=DOORS[d.t];const sw=d.t==='plain'&&d.c?d.c:hex(D.color);return`<button class="door${d.open?' on':''}" data-i="${i}" data-f="${f}"><span class="f">${FL[f]}</span><span class="sw" style="background:${sw}"></span>${d.open?'Open':D.short}${d.m?' &#8635;':''}</button>`}).join('');
+    const doors=FACES.map(f=>{const d=bay.doors[f],D=DOORS[d.t];const sw=PAINT_OK.includes(d.t)&&d.c?d.c:hex(D.color);return`<button class="door${d.open?' on':''}" data-i="${i}" data-f="${f}"><span class="f">${FL[f]}</span><span class="sw" style="background:${sw}"></span>${d.open?'Open':D.short}${d.m?' &#8635;':''}${d.r?' &#8644;':''}</button>`}).join('');
     h+=`<div class="cub"><div class="ch"><span class="bl">Cubby ${i+1}</span>${sel}</div><div class="dr">${doors}</div></div>`}
   el.innerHTML=h;
   el.querySelectorAll('select[data-k]').forEach(s=>s.value=b.bays[+s.dataset.i].inside);
@@ -818,6 +882,8 @@ function setArmed(k,force){armed=force?k:(armed===k?null:k);sheet.querySelectorA
 sheet.addEventListener('click',e=>{
   const dbtn=e.target.closest('button.door');const b=selBlock();
   if(dbtn&&b){const tag={id:b.id,i:+dbtn.dataset.i,f:dbtn.dataset.f};const tool=currentTool();if(tool)useTool(tag,tool);else toggleDoor(tag);return}
+  const dp=e.target.closest('[data-dpaint]');
+  if(dp&&S.mode==='design'){S.dsel=S.dsel===dp.dataset.dpaint?null:dp.dataset.dpaint;sheet.querySelectorAll('[data-dpaint]').forEach(c=>c.classList.toggle('armed',c.dataset.dpaint===S.dsel));renderDesignInfo();return}
   const da=e.target.closest('[data-a]');
   if(da&&S.mode==='design'){const act=da.dataset.a,bb=selBlock();
     if(act==='dinfo'){renderDesignInfo();document.getElementById('dPop').classList.toggle('open');return}
@@ -940,25 +1006,32 @@ function buildGarage(){
 }
 function buildBench(){
   benchItems={};const g=new THREE.Group();
-  const types=Object.keys(DOORS).filter(k=>k!=='none');const cols=6,rows=Math.ceil(types.length/cols);
+  const types=Object.keys(DOORS).filter(k=>k!=='none').map(k=>'door:'+k).concat(['motor','flip']).concat(Object.keys(INSIDE).filter(k=>k!=='none'&&k!=='ups').map(k=>'in:'+k));const cols=7,rows=Math.ceil(types.length/cols);
   const pw=(STD.w-3)/12,ph=(STD.bayU*U-0.4)/12,pt=0.6/12,gx=pw+0.35,gz=ph+0.45;
   const bw=cols*gx+0.4,bd=rows*gz+0.3,top=3,cz=5.4;
   const topM=new THREE.MeshLambertMaterial({map:woodTex});topM.userData.temp=1;
   const tb=new THREE.Mesh(new THREE.BoxGeometry(bw,0.15,bd),topM);tb.position.set(0,top-0.075,cz);tb.castShadow=tb.receiveShadow=true;g.add(tb);tb.userData.fx=1;
   for(const sx of[-1,1])for(const sz of[-1,1]){const l=new THREE.Mesh(new THREE.BoxGeometry(0.15,top-0.15,0.15),M.steel);l.position.set(sx*(bw/2-0.2),(top-0.15)/2,cz+sz*(bd/2-0.2));l.userData.fx=1;g.add(l)}
   const edge=new THREE.Mesh(new THREE.BoxGeometry(bw,0.06,0.06),M.blue);edge.position.set(0,top-0.04,cz+bd/2);edge.userData.fx=1;g.add(edge);
-  types.forEach((t,k)=>{
+  types.forEach((key,k)=>{
     const c=k%cols,r=Math.floor(k/cols);
-    const it=new THREE.Group();it.position.set((c-(cols-1)/2)*gx,top+0.02,cz-bd/2+0.15+gz*r+ph);it.userData.bench=t;g.add(it);
-    const holder=new THREE.Group();holder.rotation.x=-Math.PI/2;it.add(holder);
-    let mat=t==='clear'?M.clear:(t==='plain'||t==='art'||t==='sensor'||t==='cable'||t==='stand')?M.wood:M.panel;
-    if(t==='rgb'){mat=new THREE.MeshBasicMaterial({color:0xff4fd8});mat.userData.temp=1;rgbs.push({mat,mover:it})}
-    const pm=box(pw,ph,pt,0,ph/2,-pt/2,mat,holder);pm.position.x=0;
-    holder.position.set(0,pt,0);doorHardware(t,holder,pw,ph,'bench'+t);
+    const it=new THREE.Group();it.position.set((c-(cols-1)/2)*gx,top+0.02,cz-bd/2+0.15+gz*r+ph);it.userData.bench=key;g.add(it);
+    if(key.startsWith('door:')){const t=key.slice(5);
+      const holder=new THREE.Group();holder.rotation.x=-Math.PI/2;it.add(holder);
+      let mat=t==='clear'?M.clear:(t==='plain'||t==='art'||t==='sensor'||t==='cable'||t==='stand')?M.wood:M.panel;
+      if(t==='rgb'){mat=new THREE.MeshBasicMaterial({color:0xff4fd8});mat.userData.temp=1;rgbs.push({mat,mover:it})}
+      if(t==='video'){mat=vidMat();vids.push({mat,mesh:null,pw,ph,bench:true})}
+      if(t==='diffuser'){mat=new THREE.MeshLambertMaterial({color:0xf3e9ff,transparent:true,opacity:0.7});mat.userData.temp=1}
+      box(pw,ph,pt,0,ph/2,-pt/2,mat,holder);
+      holder.position.set(0,pt,0);doorHardware(t,holder,pw,ph,'bench'+t);
+    }else if(key==='motor'){const m=new THREE.Group();m.position.set(0,0.12,-ph/2);it.add(m);cyl(0.14,0.14,0.3,18,M.blue,m,0,0,0,0);m.children[0].rotation.z=Math.PI/2;cyl(0.04,0.04,0.2,10,M.rod,m,0.25,0,0,0);m.children[1].rotation.z=Math.PI/2;box(0.3,0.06,0.3,0,-0.12,0,M.dark,m)}
+    else if(key==='flip'){const tor=new THREE.Mesh(new THREE.TorusGeometry(0.3,0.05,8,24,Math.PI*1.5),M.blue);tor.rotation.x=-Math.PI/2;tor.position.set(0,0.06,-ph/2);it.add(tor);const tip=new THREE.Mesh(new THREE.ConeGeometry(0.1,0.2,12),M.blue);tip.position.set(0.3,0.06,-ph/2-0.05);tip.rotation.x=Math.PI/2;it.add(tip)}
+    else{const ik=key.slice(3);const hold=new THREE.Group();hold.position.set(0,0,-ph/2);it.add(hold);box(pw*0.8,0.04,ph*0.8,0,0.02,0,M.shelf,hold);insideGear(ik,hold,0.04,pw*0.7,ph*0.7,0.2,0.8,false)}
+    const lbl=key.startsWith('door:')?DOORS[key.slice(5)].short:key.startsWith('in:')?INSIDE[key.slice(3)].name:TOOL_INFO[key][0];
     const ol=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(pw+0.1,0.12,ph+0.1)),M.ghostLine);ol.position.set(0,0.05,-ph/2);ol.visible=false;ol.userData.fx=1;it.add(ol);it.userData.outline=ol;
-    const lm=new THREE.SpriteMaterial({map:smallLabel(DOORS[t].short),depthTest:false});lm.userData.temp=1;const sp=new THREE.Sprite(lm);sp.scale.set(1.1,0.28,1);sp.position.set(0,0.5,-ph/2);sp.userData.fx=1;sp.renderOrder=6;it.add(sp);
-    it.traverse(o=>{if(!o.userData.fx)o.userData.bench=t});
-    benchItems[t]=it;
+    const lm=new THREE.SpriteMaterial({map:smallLabel(lbl),depthTest:false});lm.userData.temp=1;const sp=new THREE.Sprite(lm);sp.scale.set(1.1,0.28,1);sp.position.set(0,0.5,-ph/2);sp.userData.fx=1;sp.renderOrder=6;it.add(sp);
+    it.traverse(o=>{if(!o.userData.fx)o.userData.bench=key});
+    benchItems[key]=it;
   });
   benchGroup=g;return g;
 }
@@ -971,9 +1044,12 @@ function benchFrame(t){
     const sel=S.dsel===k;it.position.y=3.02+(sel?0.25+Math.sin(t*4)*0.04:0);if(it.userData.outline)it.userData.outline.visible=sel;
   }
 }
-function designInfo(t){
-  if(!t)return `<div class="cname">Pick a panel</div><div class="cmeta">Tap any panel on the bench to see what it is, then tap an open slot on the tower to fit it. Each panel comes back on the bench a few seconds after you use it.</div>`;
-  const d=DOORS[t];
+function designInfo(key){
+  if(!key)return `<div class="cname">Pick something</div><div class="cmeta">Tap any panel, part or tool on the bench to see what it is, then tap a slot on the tower to use it. Each one comes back on the bench a few seconds after you use it.</div>`;
+  if(key==='motor'||key==='flip')return `<div class="cname">${TOOL_INFO[key][0]}</div><div class="cdesc">${TOOL_INFO[key][1]}</div>`;
+  if(key.startsWith('paint:'))return `<div class="cname">${toolName(key)}</div><div class="cdesc">Paints plain doors, and tints diffuser panels.</div>`;
+  if(key.startsWith('in:')){const k=key.slice(3),d=INSIDE[k];return `<div class="cname">${d.name}</div><div class="cmeta">Inside gear, ${d.lb} lb, ${d.w} W. Tap any door of a cubby to put it in that cubby.</div><div class="cdesc">${INSIDE_INFO[k]||''}</div>`}
+  const t=key.slice(5),d=DOORS[t];
   return `<div class="cname">${d.name}</div><div class="cmeta">Door panel, ${STD.w-3}" by ${(STD.bayU*U-0.4).toFixed(1)}", ${d.lb} lb, ${d.w} W. Fits every opening on every block.</div><div class="cdesc">${DOOR_INFO[t]||''} ${SPECS[t]||''}</div>`;
 }
 function savedAll(){try{const v=JSON.parse(localStorage.getItem('bloxx-saved-layouts'));return v&&typeof v==='object'?v:{}}catch(e){return{}}}
@@ -1168,6 +1244,8 @@ function showFrame(t){
     else if(sh.motion==='tilt'){rx=-0.6}
     o.rotation.x=rx;o.rotation.y=ry;o.position.z=pz;
   }
+  for(const d of diffs){const f=d.strobe?(((t*7)%1)<0.18?1.6:0.35):(0.55+0.65*kick)*(S.lights?1.2:1);d.mat.color.copy(d.base).multiplyScalar(f)}
+  if(vids.length||(document.body.classList.contains('cat')&&catSel==='door:video')){if(!(Math.floor(t*30)%2))drawVideo(t,kick)}
   return kick;
 }
 function animateList(list,t,kick){
@@ -1179,6 +1257,11 @@ function animateList(list,t,kick){
     else if(u.kind==='fan')o.rotation.y=Math.sin(t*0.8+u.phase)*0.35;
     else if(u.kind==='wig'){o.rotation.y=Math.sin(t*3.1+u.phase)*0.45;o.rotation.x=Math.sin(t*2.3+u.phase)*0.3}
     else if(u.kind==='smoke'){const a=o.geometry.attributes.position;u.seeds.forEach((sd,k)=>{const p=(t*0.18+sd[0])%1;a.setXYZ(k,sd[1]*p*3.2,-0.2+p*(1.2+sd[2]*0.8),0.3+p*8)});a.needsUpdate=true}
+    else if(u.kind==='spin')o.rotation.y=t*1.2;
+    else if(u.kind==='spinSlow')o.rotation.y=t*0.5;
+    else if(u.kind==='mpan')o.rotation.y=Math.sin(t*0.7+u.phase)*0.9;
+    else if(u.kind==='spanFull')o.rotation.y=t*0.6+u.phase;
+    else if(u.kind==='mtilt')o.rotation.x=Math.sin(t*1.1+u.phase)*0.5;
   }
 }
 
@@ -1191,9 +1274,9 @@ const PART_INFO={
   strip:['Power and cabling','Full height power strip','A power strip runs up one inside corner with outlets in every cubby, fed from the UPS in the bottom cubby. Any panel plugs in where it sits.'],
   rail:['Structure','Handrail','Posts that seat in the same twist lock castings used to join blocks, with top and mid rails between the end posts. Fit them to any open edge of a deck.']
 };
-const INSIDE_INFO={amp:'Powers the speaker doors in its block.',rack:'Rack gear on shelf rails: mixers, interfaces, processors.',ctrl:'Controller for the twist lock motors and door solenoids.',storage:'Spare panels, cables and small parts.',glow:'Light bar mounted in the top of the cubby. It follows the RGB show pattern, so a cubby behind a clear door becomes a glowing pixel.',ups:'Sealed lead acid battery backup, bolted to the bottom shelf so the block can tip, lie down or stack. Feeds the full height power strip.',none:'Empty cubby.'};
-const DOOR_INFO={plain:'Blank wood door. Paint it any color and add a motor to make it swivel.',sub:'Low frequency driver on the door. Plays with the door shut.',mid:'Mid range driver on the door.',tweet:'Pair of high frequency domes on the door.',proj:'Pico projector mounted to the door, throwing through it with the door shut.',led:'LED wash grid on the door.',strobe:'Bright strobe bar on the door.',lzFlat:'Laser fan that sweeps flat across the room.',lz45:'Laser fan aimed up at forty five degrees.',lzUp:'Laser beams straight up.',lzWig:'Laser beams that wiggle on two axes.',lzG9:'Grid of laser emitters across the whole panel.',lzG18:'Dense grid of laser emitters across the whole panel.',smoke:'Smoke machine behind a vented door. Makes every laser in the layout pop.',sensor:'Sensor dome that sweeps the area in front of it.',art:'Framed art panel that hangs on the outside of the door.',rgb:'Backlit RGB panel. Side by side they form one big pixel wall. Takes a motor.',cable:'Door with a brush grommet so cables can leave or enter the cubby.',clear:'Clear panel in a thin frame. Pair it with an inside light so the cubby glows through it.',stand:'Wood door with a fold down kickstand. The hinge stops the door flat, the two legs swing down and brace against the face below, so the open door works as a small table for gear.',none:'Door removed. Leaves the slot open so cables can pass between blocks.'};
-const SPECS={sub:'Planning spec: long throw low frequency driver, roughly 35 Hz to 150 Hz, wants an amplifier inside the same block.',mid:'Planning spec: cone and horn mid range, roughly 150 Hz to 4 kHz.',tweet:'Planning spec: pair of domes, roughly 4 kHz to 20 kHz.',proj:'Planning spec: short throw pico projector behind a clear window in the door.',led:'Planning spec: sixteen RGBW emitters in a wide wash.',strobe:'Planning spec: LED strobe bar, flash rate follows the beat.',lzFlat:'Show laser. Needs a trained operator and audience scanning rules wherever it is used.',lz45:'Show laser. Needs a trained operator and audience scanning rules wherever it is used.',lzUp:'Show laser. Needs a trained operator and audience scanning rules wherever it is used.',lzWig:'Show laser. Needs a trained operator and audience scanning rules wherever it is used.',lzG9:'Show laser array. Needs a trained operator and audience scanning rules wherever it is used.',lzG18:'Show laser array. Needs a trained operator and audience scanning rules wherever it is used.',smoke:'Planning spec: heater with a fluid tank in the cubby, needs warm up before the first burst.',rgb:'Planning spec: diffused RGB backlight, one big pixel per panel.',clear:'Planning spec: framed clear polycarbonate.',stand:'Planning spec: braced by two legs for light gear on top.',cable:'Planning spec: brush grommet sized for a fat cable bundle.'};
+const INSIDE_INFO={amp:'Powers the speaker doors in its block.',rack:'Rack gear on shelf rails: mixers, interfaces, processors.',ctrl:'Controller for the twist lock motors and door solenoids.',storage:'Spare panels, cables and small parts.',disco:'Mirror ball hanging in the cubby, spinning. Behind a clear door or an open slot it throws specks of light around the room.',spotIn:'Moving head spotlight sitting inside the cubby. It pans all the way around and shines out of any clear, open or missing door.',strobeIn:'Strobe inside the cubby. Flashes through clear and diffuser doors.',glow:'Light bar mounted in the top of the cubby. It follows the RGB show pattern, so a cubby behind a clear door becomes a glowing pixel.',ups:'Sealed lead acid battery backup, bolted to the bottom shelf so the block can tip, lie down or stack. Feeds the full height power strip.',none:'Empty cubby.'};
+const DOOR_INFO={plain:'Blank wood door. Paint it any color and add a motor to make it swivel.',sub:'Low frequency driver on the door. Plays with the door shut.',mid:'Mid range driver on the door.',tweet:'Pair of high frequency domes on the door.',proj:'Pico projector mounted to the door, throwing through it with the door shut.',led:'LED wash grid on the door.',strobe:'Bright strobe bar on the door.',lzFlat:'Laser fan that sweeps flat across the room.',lz45:'Laser fan aimed up at forty five degrees.',lzUp:'Laser beams straight up.',lzWig:'Laser beams that wiggle on two axes.',lzG9:'Grid of laser emitters across the whole panel.',lzG18:'Dense grid of laser emitters across the whole panel.',smoke:'Smoke machine behind a vented door. Makes every laser in the layout pop.',sensor:'Sensor dome that sweeps the area in front of it.',art:'Framed art panel that hangs on the outside of the door.',rgb:'Backlit RGB panel. Side by side they form one big pixel wall. Takes a motor.',cable:'Door with a brush grommet so cables can leave or enter the cubby.',diffuser:'Translucent panel that takes any paint color as its diffuser tint. With a light, strobe, spotlight or mirror ball inside the cubby it glows in that color and pulses with the beat.',video:'LED video panel. Video panels side by side play one picture across all of them, so a wall of towers becomes a video wall. Takes a motor.',spot:'Moving head spotlight mounted on the door. It pans and tilts on its own, and it works open, shut or flipped.',clear:'Clear panel in a thin frame. Pair it with an inside light so the cubby glows through it.',stand:'Wood door with a fold down kickstand. The hinge stops the door flat, the two legs swing down and brace against the face below, so the open door works as a small table for gear.',none:'Door removed. Leaves the slot open so cables can pass between blocks.'};
+const SPECS={sub:'Planning spec: long throw low frequency driver, roughly 35 Hz to 150 Hz, wants an amplifier inside the same block.',mid:'Planning spec: cone and horn mid range, roughly 150 Hz to 4 kHz.',tweet:'Planning spec: pair of domes, roughly 4 kHz to 20 kHz.',proj:'Planning spec: short throw pico projector behind a clear window in the door.',led:'Planning spec: sixteen RGBW emitters in a wide wash.',strobe:'Planning spec: LED strobe bar, flash rate follows the beat.',lzFlat:'Show laser. Needs a trained operator and audience scanning rules wherever it is used.',lz45:'Show laser. Needs a trained operator and audience scanning rules wherever it is used.',lzUp:'Show laser. Needs a trained operator and audience scanning rules wherever it is used.',lzWig:'Show laser. Needs a trained operator and audience scanning rules wherever it is used.',lzG9:'Show laser array. Needs a trained operator and audience scanning rules wherever it is used.',lzG18:'Show laser array. Needs a trained operator and audience scanning rules wherever it is used.',smoke:'Planning spec: heater with a fluid tank in the cubby, needs warm up before the first burst.',rgb:'Planning spec: diffused RGB backlight, one big pixel per panel.',clear:'Planning spec: framed clear polycarbonate.',diffuser:'Planning spec: frosted acrylic, tinted to order.',video:'Planning spec: fine pitch LED module, panels tile edge to edge.',spot:'Planning spec: compact LED moving head, narrow beam.',stand:'Planning spec: braced by two legs for light gear on top.',cable:'Planning spec: brush grommet sized for a fat cable bundle.'};
 let catSel='block',catR=null,catScene,catCam,catCtl,catRoot=null,catAnim=[],catUpd=null,catRgbs=[];
 const pt0=0.6/12,base0=2/12,t0=1.5/12;
 function catEnsure(){
@@ -1259,7 +1342,7 @@ function buildPart(key){
       catFrame(7,1.8);return;
     }
     if(key.startsWith('in:')){
-      const k=key.slice(3),ch=CHASE/12,Di=D-2*t0;cubbyShell(catRoot,W,D,bayH);insideGear(k,catRoot,0.12,Wi,Di,ch,bayH-0.12);catFrame(3.2,0.6);return;
+      const k=key.slice(3),ch=CHASE/12,Di=D-2*t0;cubbyShell(catRoot,W,D,bayH);insideGear(k,catRoot,0.12,Wi,Di,ch,bayH-0.12,true);catFrame(k==='disco'||k==='spotIn'?9:3.2,0.6);return;
     }
     if(key.startsWith('door:')){
       const t=key.slice(5);cubbyShell(catRoot,W,D,bayH);box(W,bayH,D,0,-bayH/2,0,M.wood,catRoot);catRoot.position.y=bayH;
@@ -1269,6 +1352,8 @@ function buildPart(key){
       const holder=new THREE.Group();holder.position.set(0,-ph/2,0);mover.add(holder);
       let mat=t==='none'?M.ghost:(t==='plain'||t==='art'||t==='sensor'||t==='cable')?M.wood:M.panel;
       if(t==='rgb'){mat=new THREE.MeshBasicMaterial({color:0x1e6fd9});mat.userData.temp=1;rgbs.push({mat,mover,wx:0,wy:0,wz:0})}
+      if(t==='video')mat=vidMat();
+      if(t==='diffuser'){mat=new THREE.MeshBasicMaterial({color:0xc9a8ff,transparent:true,opacity:0.88});mat.userData.temp=1;rgbs.push({mat,mover,wx:0,wy:0,wz:0})}
       box(Wi,ph,pt0,0,ph/2,-pt0/2,mat,holder);doorHardware(t,holder,Wi,ph,'catalog'+t);
       const fx=new THREE.Group();fr.add(fx);doorFX(t,fx,Wi,ph);
       const ks=t==='stand'?kickstand(fr,Wi,ph,pt0):null;if(ks)ks.visible=false;
