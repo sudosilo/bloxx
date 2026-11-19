@@ -51,6 +51,8 @@ input[type=range]{width:100%;accent-color:var(--blue)}
 .lnk{display:grid;grid-template-columns:1fr 92px;gap:6px;align-items:center;height:44px;border-bottom:1px solid #eef2f6;font-size:13px;font-weight:600}
 .lnk .door{justify-content:center}
 .lnk .door.on{background:#e3f7ea;border-color:#2fb36b;color:#1d7a45}
+.srow{display:grid;grid-template-columns:1fr 64px 64px;gap:6px;align-items:center;height:46px;border-bottom:1px solid #eef2f6;font-size:13px;font-weight:700}
+.srow span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .roomrow{display:grid;grid-template-columns:1fr 64px 64px;gap:6px;margin-bottom:6px}
 .roomrow input{height:40px;border:1px solid var(--line);border-radius:9px;padding:0 10px;font:inherit;min-width:0}
 .rstat{height:36px;font-size:12px;color:var(--blue);font-weight:600;line-height:1.4;overflow:hidden;margin-bottom:8px}
@@ -115,6 +117,11 @@ details>div{padding:0 12px 12px}
       <button class="btn warn" data-m="clear">Clear all</button>
       <button class="btn primary" data-m="catalog" style="grid-column:span 2">Parts catalog</button>
     </div>
+  </div></details>
+  <details open><summary>My layouts</summary><div>
+    <div class="roomrow"><input id="saveName" placeholder="layout name" autocomplete="off"><button class="btn primary" id="saveBtn" style="grid-column:span 2">Save</button></div>
+    <div class="rstat" id="saveStat"></div>
+    <div id="savedList"></div>
   </div></details>
   <details open><summary>Presets</summary><div>
     <div class="mg">
@@ -835,6 +842,24 @@ document.getElementById('menu').addEventListener('click',e=>{
   else if(k==='openall'||k==='shutall'){S.blocks.forEach(b=>b.bays.forEach(x=>FACES.forEach(f=>x.doors[f].open=k==='openall')));clickSound();rebuild();renderBays()}
   save();
 });
+function savedAll(){try{const v=JSON.parse(localStorage.getItem('bloxx-saved-layouts'));return v&&typeof v==='object'?v:{}}catch(e){return{}}}
+function savedPut(v){try{localStorage.setItem('bloxx-saved-layouts',JSON.stringify(v));return true}catch(e){return false}}
+function renderSaved(){
+  const v=savedAll(),names=Object.keys(v).sort((a,b)=>(v[b].at||0)-(v[a].at||0));
+  document.getElementById('savedList').innerHTML=names.length?names.map(n=>`<div class="srow"><span>${n.replace(/[<>&"]/g,'')} (${v[n].blocks.length} blocks)</span><button class="btn" data-load="${encodeURIComponent(n)}">Load</button><button class="btn warn" data-delsave="${encodeURIComponent(n)}">Delete</button></div>`).join(''):'<div class="note">No saved layouts yet.</div>';
+}
+function saveStat(t){document.getElementById('saveStat').textContent=t}
+document.getElementById('saveBtn').addEventListener('click',()=>{
+  const n=document.getElementById('saveName').value.trim().slice(0,40);if(!n){saveStat('Type a name first.');return}
+  const v=savedAll();v[n]={at:Date.now(),blocks:JSON.parse(JSON.stringify(S.blocks)),show:Object.assign({},S.show),locks:Object.assign({},S.locks),lights:!!S.lights};
+  if(savedPut(v)){saveStat(`Saved ${n}.`);clickSound();renderSaved()}else saveStat('This browser would not save it.');
+});
+document.getElementById('savedList').addEventListener('click',e=>{
+  const l=e.target.closest('[data-load]'),d=e.target.closest('[data-delsave]');const v=savedAll();
+  if(l){const n=decodeURIComponent(l.dataset.load),L=v[n];if(!L)return;S.blocks=JSON.parse(JSON.stringify(L.blocks));S.show=Object.assign({},SHOW_DEF,L.show||{});S.locks=Object.assign({},L.locks||{});S.lights=!!L.lights;S.sel=S.blocks.length?S.blocks[S.blocks.length-1].id:null;document.getElementById('saveName').value=n;rebuild();renderSheet();frameView();saveStat(`Loaded ${n}.`);document.body.classList.remove('menu')}
+  if(d){const n=decodeURIComponent(d.dataset.delsave);delete v[n];savedPut(v);saveStat(`Deleted ${n}.`);renderSaved()}
+});
+renderSaved();
 function updateShowUI(){
   document.querySelectorAll('[data-pat]').forEach(b=>b.classList.toggle('primary',b.dataset.pat===S.show.pattern));
   document.querySelectorAll('[data-mot]').forEach(b=>b.classList.toggle('primary',b.dataset.mot===S.show.motion));
